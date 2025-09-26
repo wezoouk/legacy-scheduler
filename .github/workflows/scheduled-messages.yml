@@ -15,7 +15,7 @@ jobs:
       - name: Process Scheduled Messages
         run: |
           curl -X POST "${{ secrets.SUPABASE_URL }}/functions/v1/process-scheduled-messages" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "Content-Type: application/json" \
             -d '{}'
         continue-on-error: true

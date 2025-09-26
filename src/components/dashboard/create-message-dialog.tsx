@@ -374,6 +374,9 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
       
       await createMessage(messageData);
       
+      // Force refresh the messages list to show the new scheduled message
+      window.dispatchEvent(new CustomEvent('messageStatusUpdated'));
+      
       // Don't close dialog, just reset form for next message
       resetFormState();
     } catch (err) {

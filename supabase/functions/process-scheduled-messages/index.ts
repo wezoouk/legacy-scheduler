@@ -36,15 +36,29 @@ serve(async (req) => {
   }
 
   try {
-    // Create Supabase client with service role key (bypasses RLS)
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    // Get auth header to determine which key to use
+    const authHeader = req.headers.get('Authorization')
+    const isServiceRole = authHeader?.includes('Bearer ') && Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
     
-    if (!supabaseUrl || !supabaseServiceKey) {
+    // Create Supabase client with service role key (bypasses RLS) OR anon key for testing
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    let supabaseKey: string
+    
+    if (isServiceRole) {
+      // Production: Use service role key (from cron jobs)
+      supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      console.log('Using service role key (production mode)')
+    } else {
+      // Testing: Use anon key (from admin panel)
+      supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!
+      console.log('Using anon key (testing mode)')
+    }
+    
+    if (!supabaseUrl || !supabaseKey) {
       throw new Error('Missing Supabase configuration')
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    const supabase = createClient(supabaseUrl, supabaseKey)
 
     const now = new Date().toISOString()
     console.log(`📧 Processing scheduled messages due before ${now}`)
