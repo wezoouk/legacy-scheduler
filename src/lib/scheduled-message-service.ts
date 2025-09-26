@@ -47,15 +47,17 @@ export class ScheduledMessageService {
       return;
     }
 
-    console.log('Starting scheduled message service...');
+    console.log('🚀 Starting scheduled message service...');
     this.isRunning = true;
     
     // Check every 1 minute for scheduled messages
     this.checkInterval = setInterval(() => {
+      console.log('⏰ Scheduled message service: Running periodic check...');
       this.checkAndSendScheduledMessages();
     }, 60000); // 1 minute
 
     // Also check immediately
+    console.log('⏰ Scheduled message service: Running initial check...');
     this.checkAndSendScheduledMessages();
   }
 
@@ -77,20 +79,30 @@ export class ScheduledMessageService {
   private static async checkAndSendScheduledMessages() {
     try {
       const now = new Date().toISOString();
-      console.log(`Checking for scheduled messages due before ${now}`);
+      console.log(`📧 Checking for scheduled messages due before ${now}`);
 
       let scheduledMessages: any[] = [];
 
       // Try Supabase first
       if (isSupabaseConfigured && supabase) {
         console.log('Checking Supabase for scheduled messages...');
+        
+        // Check if we have an authenticated user
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          console.log('⚠️ No authenticated user for scheduled message service - skipping check');
+          return;
+        }
+        
+        console.log(`🔐 Checking scheduled messages for authenticated user: ${user.email}`);
+        
         const { data, error } = await supabase
           .from('messages')
           .select('*')
           .eq('status', 'SCHEDULED')
           .lte('scheduledFor', now);
 
-        // Debug: Log all SCHEDULED messages regardless of time
+        // Debug: Log all SCHEDULED messages regardless of time (for this user)
         const { data: allScheduled, error: allError } = await supabase
           .from('messages')
           .select('*')
@@ -108,18 +120,17 @@ export class ScheduledMessageService {
 
         if (error) {
           console.error('Error fetching scheduled messages from Supabase:', error);
-          console.log('Falling back to localStorage...');
-          scheduledMessages = this.getScheduledMessagesFromLocalStorage(now);
+          console.log('No fallback - Supabase only');
+          scheduledMessages = [];
         } else if (data) {
           scheduledMessages = data;
         } else {
-          console.log('No scheduled messages in Supabase, checking localStorage...');
-          scheduledMessages = this.getScheduledMessagesFromLocalStorage(now);
+          console.log('No scheduled messages in Supabase');
+          scheduledMessages = [];
         }
       } else {
-        console.log('Supabase not configured, checking localStorage...');
-        // Fallback to localStorage
-        scheduledMessages = this.getScheduledMessagesFromLocalStorage(now);
+        console.log('Supabase not configured - no scheduled messages');
+        scheduledMessages = [];
       }
 
       if (scheduledMessages.length === 0) {
@@ -139,17 +150,12 @@ export class ScheduledMessageService {
 
       // Process each scheduled message
       for (const message of scheduledMessages) {
-        // Map snake_case columns back to camelCase for client compatibility (if from Supabase)
-        const mappedMessage = message.user_id ? {
+        // Data should already be in camelCase from Supabase
+        const mappedMessage = {
           ...message,
-          userId: message.user_id,
-          scheduledFor: message.scheduled_for ? new Date(message.scheduled_for) : null,
-          recipientIds: message.recipient_ids,
-          cipherBlobUrl: message.cipher_blob_url,
-          thumbnailUrl: message.thumbnail_url,
-          createdAt: new Date(message.created_at),
-          updatedAt: new Date(message.updated_at),
-        } : message; // Already in camelCase from localStorage
+          scheduledFor: message.scheduledFor ? new Date(message.scheduledFor) : null,
+          recipientIds: message.recipientIds || [],
+        };
 
         await this.sendScheduledMessage(mappedMessage);
       }
@@ -161,68 +167,7 @@ export class ScheduledMessageService {
     }
   }
 
-  /**
-   * Get scheduled messages from localStorage
-   */
-  private static getScheduledMessagesFromLocalStorage(now: string): any[] {
-    try {
-      const allScheduledMessages: any[] = [];
-      const nowDate = new Date(now);
-
-      // Get all users from localStorage
-      const usersData = localStorage.getItem('legacyScheduler_users');
-      if (!usersData) {
-        console.log('No users found in localStorage');
-        return [];
-      }
-
-      const users = JSON.parse(usersData);
-      console.log(`Checking ${users.length} users for scheduled messages`);
-
-      // Check each user's messages
-      for (const user of users) {
-        const messagesKey = `messages_${user.id}`;
-        const userMessagesData = localStorage.getItem(messagesKey);
-        
-        if (userMessagesData) {
-          const userMessages = JSON.parse(userMessagesData);
-          console.log(`User ${user.email}: ${userMessages.length} total messages`);
-          
-          // Filter for scheduled messages that are due
-          const scheduledMessages = userMessages.filter((message: any) => {
-            const isScheduled = message.status === 'SCHEDULED';
-            const hasScheduledFor = message.scheduledFor;
-            const isDue = hasScheduledFor && new Date(message.scheduledFor) <= nowDate;
-            
-            if (isScheduled) {
-              console.log(`  Scheduled message: ${message.title}, due: ${message.scheduledFor}, isDue: ${isDue}`);
-            }
-            
-            return isScheduled && hasScheduledFor && isDue;
-          });
-
-          console.log(`User ${user.email}: ${scheduledMessages.length} scheduled messages due`);
-
-          // Add user info to each message for admin context
-          scheduledMessages.forEach((message: any) => {
-            allScheduledMessages.push({
-              ...message,
-              userName: user.name || user.email,
-              userEmail: user.email,
-            });
-          });
-        } else {
-          console.log(`User ${user.email}: no messages found`);
-        }
-      }
-
-      console.log(`Total scheduled messages due: ${allScheduledMessages.length}`);
-      return allScheduledMessages;
-    } catch (error) {
-      console.error('Error getting scheduled messages from localStorage:', error);
-      return [];
-    }
-  }
+  // Removed localStorage fallback - Supabase only
 
   /**
    * Check for DMS check-in reminders
@@ -382,7 +327,7 @@ export class ScheduledMessageService {
                 recipientName: recipient.name,
                 subject: message.title,
                 content: message.content,
-                messageType: message.types?.[0] || 'EMAIL',
+                messageType: (message.types?.[0] as 'EMAIL' | 'VIDEO' | 'VOICE' | 'FILE') || 'EMAIL',
                 attachments: attachments
               });
 
@@ -471,24 +416,22 @@ export class ScheduledMessageService {
       // Update message status to FAILED
       try {
         if (isSupabaseConfigured && supabase) {
-          supabase
+          const { error: updateError } = await supabase
             .from('messages')
             .update({ 
               status: 'FAILED',
               updatedAt: new Date().toISOString()
             })
-            .eq('id', message.id)
-            .then(({ error: updateError }) => {
-              if (!updateError) {
-                // Dispatch custom event to notify UI of status change
-                window.dispatchEvent(new CustomEvent('messageStatusUpdated', {
-                  detail: { messageId: message.id, status: 'FAILED' }
-                }));
-              } else {
-                console.error('Error updating message status to FAILED:', updateError);
-              }
-            })
-            .catch((e) => console.error('Error updating message status to FAILED:', e));
+            .eq('id', message.id);
+
+          if (!updateError) {
+            // Dispatch custom event to notify UI of status change
+            window.dispatchEvent(new CustomEvent('messageStatusUpdated', {
+              detail: { messageId: message.id, status: 'FAILED' }
+            }));
+          } else {
+            console.error('Error updating message status to FAILED:', updateError);
+          }
         } else {
           this.updateMessageStatusInLocalStorage(message.id, 'FAILED');
         }
@@ -563,10 +506,14 @@ export class ScheduledMessageService {
   /**
    * Get the current status of the service
    */
-  static getStatus() {
+  static async getStatus() {
+    const authStatus = supabase ? await supabase.auth.getUser() : null;
     return {
       isRunning: this.isRunning,
-      hasInterval: this.checkInterval !== null
+      hasInterval: this.checkInterval !== null,
+      supabaseConfigured: isSupabaseConfigured,
+      isAuthenticated: authStatus?.data?.user ? true : false,
+      userEmail: authStatus?.data?.user?.email || null,
     };
   }
 
@@ -579,11 +526,11 @@ export class ScheduledMessageService {
   }
 }
 
-// Auto-start the service when the module is loaded
+// DISABLED: Client-side scheduled service is flawed and won't work on servers
+// Use the server-side Supabase Edge Function instead: process-scheduled-messages
+
+// Make it available globally for debugging/manual testing only
 if (typeof window !== 'undefined') {
-  // Only start in browser environment
-  ScheduledMessageService.start();
-  
-  // Make it available globally for debugging
   (window as any).ScheduledMessageService = ScheduledMessageService;
+  console.log('⚠️ Client-side scheduled service is DISABLED. Use server-side Edge Function for production.');
 }

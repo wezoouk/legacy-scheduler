@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Play, Download, ExternalLink, Calendar, User, Mail, Clock } from "lucide-react";
+import { Play, Pause, Download, ExternalLink, Calendar, User, Mail, Clock } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { format } from "date-fns";
 
@@ -33,6 +33,7 @@ export function VideoPreviewDialog({
       
       const handleTimeUpdate = () => setCurrentTime(video.currentTime);
       const handleDurationChange = () => setDuration(video.duration);
+      const handleLoadedMetadata = () => setDuration(video.duration);
       const handlePlay = () => setIsPlaying(true);
       const handlePause = () => setIsPlaying(false);
       const handleEnded = () => setIsPlaying(false);
@@ -50,6 +51,7 @@ export function VideoPreviewDialog({
 
       video.addEventListener('timeupdate', handleTimeUpdate);
       video.addEventListener('durationchange', handleDurationChange);
+      video.addEventListener('loadedmetadata', handleLoadedMetadata);
       video.addEventListener('play', handlePlay);
       video.addEventListener('pause', handlePause);
       video.addEventListener('ended', handleEnded);
@@ -60,6 +62,7 @@ export function VideoPreviewDialog({
       return () => {
         video.removeEventListener('timeupdate', handleTimeUpdate);
         video.removeEventListener('durationchange', handleDurationChange);
+        video.removeEventListener('loadedmetadata', handleLoadedMetadata);
         video.removeEventListener('play', handlePlay);
         video.removeEventListener('pause', handlePause);
         video.removeEventListener('ended', handleEnded);
@@ -69,6 +72,17 @@ export function VideoPreviewDialog({
       };
     }
   }, [videoUrl]);
+
+  // Reset state when dialog opens
+  useEffect(() => {
+    if (open) {
+      setCurrentTime(0);
+      setIsPlaying(false);
+      if (videoRef.current) {
+        videoRef.current.currentTime = 0;
+      }
+    }
+  }, [open]);
 
   const togglePlayPause = () => {
     if (videoRef.current) {
@@ -172,15 +186,19 @@ export function VideoPreviewDialog({
             />
             
             {/* Video Controls Overlay */}
-            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-300 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-300 flex items-center justify-center cursor-pointer" onClick={togglePlayPause}>
+              {/* Play button - show when not playing */}
               {!isPlaying && (
-                <Button
-                  size="lg"
-                  className="bg-white bg-opacity-90 hover:bg-opacity-100 text-black rounded-full w-16 h-16"
-                  onClick={togglePlayPause}
-                >
-                  <Play className="w-8 h-8 ml-1" />
-                </Button>
+                <div className="bg-white bg-opacity-90 hover:bg-opacity-100 text-black rounded-full w-20 h-20 flex items-center justify-center shadow-lg transition-all duration-200">
+                  <Play className="w-10 h-10 ml-1" />
+                </div>
+              )}
+              
+              {/* Pause button - show only when playing and hovering */}
+              {isPlaying && (
+                <div className="bg-white bg-opacity-0 group-hover:bg-opacity-90 hover:bg-opacity-100 text-white group-hover:text-black rounded-full w-20 h-20 flex items-center justify-center shadow-lg transition-all duration-200 opacity-0 group-hover:opacity-100">
+                  <Pause className="w-10 h-10" />
+                </div>
               )}
             </div>
 
@@ -195,12 +213,12 @@ export function VideoPreviewDialog({
                   <input
                     type="range"
                     min="0"
-                    max={duration || 0}
+                    max={duration || 100}
                     value={currentTime}
                     onChange={handleSeek}
                     className="flex-1 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
                     style={{
-                      background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${(currentTime / duration) * 100}%, #4b5563 ${(currentTime / duration) * 100}%, #4b5563 100%)`
+                      background: duration > 0 ? `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${(currentTime / duration) * 100}%, #4b5563 ${(currentTime / duration) * 100}%, #4b5563 100%)` : '#4b5563'
                     }}
                   />
                   <span className="text-white text-sm font-mono">

@@ -20,35 +20,22 @@ export const useAuthUserId = (): AuthUser => {
   useEffect(() => {
     const getAuthUser = async () => {
       try {
-        // Check for dev admin mode first
-        if (import.meta.env.DEV && import.meta.env.VITE_DEV_ADMIN_MODE === '1') {
-          console.log('Development admin mode enabled');
+        // Supabase only - no demo accounts
+        if (!supabase) {
+          console.log('Supabase not configured');
           setAuthUser({
-            id: 'admin-user-id',
-            email: 'admin@example.com',
-            isAuthenticated: true,
-            isDemoMode: true,
+            id: null,
+            email: null,
+            isAuthenticated: false,
+            isDemoMode: false,
           });
           return;
         }
-
-        // Try to get real Supabase auth user
+        
         const { data, error } = await supabase.auth.getUser();
         
         if (error) {
-          // If no auth session, check if we have a legacy user in localStorage
-          const legacyUser = JSON.parse(localStorage.getItem('legacyScheduler_user') || '{}');
-          if (legacyUser.id) {
-            setAuthUser({
-              id: legacyUser.id,
-              email: legacyUser.email,
-              isAuthenticated: false,
-              isDemoMode: true,
-            });
-            return;
-          }
-          
-          console.error('Error getting auth user:', error);
+          // No auth session - user not logged in
           setAuthUser({
             id: null,
             email: null,
@@ -67,26 +54,7 @@ export const useAuthUserId = (): AuthUser => {
             isDemoMode: false,
           });
         } else {
-          // User exists but ID is not a valid UUID (demo mode)
-          setAuthUser({
-            id: user?.id || null,
-            email: user?.email || null,
-            isAuthenticated: false,
-            isDemoMode: true,
-          });
-        }
-      } catch (error) {
-        console.error('Error in useAuthUserId:', error);
-        // Fallback to legacy user if available
-        const legacyUser = JSON.parse(localStorage.getItem('legacyScheduler_user') || '{}');
-        if (legacyUser.id) {
-          setAuthUser({
-            id: legacyUser.id,
-            email: legacyUser.email,
-            isAuthenticated: false,
-            isDemoMode: true,
-          });
-        } else {
+          // User exists but ID is not a valid UUID - not authenticated
           setAuthUser({
             id: null,
             email: null,
@@ -94,12 +62,25 @@ export const useAuthUserId = (): AuthUser => {
             isDemoMode: false,
           });
         }
+      } catch (error) {
+        console.error('Error in useAuthUserId:', error);
+        // No fallback - Supabase only
+        setAuthUser({
+          id: null,
+          email: null,
+          isAuthenticated: false,
+          isDemoMode: false,
+        });
       }
     };
 
     getAuthUser();
 
     // Listen for auth changes
+    if (!supabase) {
+      return; // No cleanup needed if no supabase
+    }
+    
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
         if (isUuid(session.user.id)) {
@@ -111,30 +92,20 @@ export const useAuthUserId = (): AuthUser => {
           });
         } else {
           setAuthUser({
-            id: session.user.id,
-            email: session.user.email,
-            isAuthenticated: false,
-            isDemoMode: true,
-          });
-        }
-      } else if (event === 'SIGNED_OUT') {
-        // Check if we have a legacy user to fall back to
-        const legacyUser = JSON.parse(localStorage.getItem('legacyScheduler_user') || '{}');
-        if (legacyUser.id) {
-          setAuthUser({
-            id: legacyUser.id,
-            email: legacyUser.email,
-            isAuthenticated: false,
-            isDemoMode: true,
-          });
-        } else {
-          setAuthUser({
             id: null,
             email: null,
             isAuthenticated: false,
             isDemoMode: false,
           });
         }
+      } else if (event === 'SIGNED_OUT') {
+        // User signed out - no fallback
+        setAuthUser({
+          id: null,
+          email: null,
+          isAuthenticated: false,
+          isDemoMode: false,
+        });
       }
     });
 

@@ -2,6 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAdmin } from '@/lib/use-admin';
 import { useMessages } from '@/lib/use-messages';
 import { useRecipients } from '@/lib/use-recipients';
+import { ScheduledProcessor } from '@/components/admin/scheduled-processor';
 import { 
   Users, 
   Mail, 
@@ -218,6 +219,39 @@ export function AdminDashboard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Scheduled Message Processor */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ScheduledProcessor />
+        
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              System Status
+            </CardTitle>
+            <CardDescription>
+              Current system health and configuration
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm">Scheduled Messages</span>
+                <span className="text-sm font-medium">{statusCounts.scheduled} pending</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm">Failed Messages</span>
+                <span className="text-sm font-medium">{statusCounts.failed} failed</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm">Total Recipients</span>
+                <span className="text-sm font-medium">{recipients.length}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

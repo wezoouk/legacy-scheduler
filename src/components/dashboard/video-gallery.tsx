@@ -344,7 +344,7 @@ export function VideoGallery({ className }: VideoGalleryProps) {
         </p>
       </div>
       
-      <div className="flex overflow-x-auto gap-4 snap-x snap-mandatory pb-2">
+      <div className="flex overflow-x-auto gap-4 snap-x snap-mandatory pb-4 scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-200 dark:scrollbar-thumb-gray-600 dark:scrollbar-track-gray-800">
         {/* Record New Video Card 1 */}
         <div className="space-y-3 min-w-[200px] w-[200px] shrink-0 snap-start">
           <Card 

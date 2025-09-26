@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Auth Test</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>Authentication Test</h1>
+    <div id="status">Testing...</div>
+    
+    <div style="margin-top: 20px;">
+        <h3>Test Login</h3>
+        <input type="email" id="email" placeholder="Email" value="davwez@gmail.com" style="width: 300px; padding: 8px; margin: 5px;">
+        <br>
+        <input type="password" id="password" placeholder="Password" style="width: 300px; padding: 8px; margin: 5px;">
+        <br>
+        <button onclick="testLogin()" style="padding: 8px 16px; margin: 5px;">Test Login</button>
+        <button onclick="testSignUp()" style="padding: 8px 16px; margin: 5px;">Test Sign Up</button>
+        <div id="result" style="margin-top: 10px; padding: 10px; border: 1px solid #ccc;"></div>
+    </div>
+
+    <script>
+        const supabaseUrl = 'https://cvhanylywsdeblhebicj.supabase.co'
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2aGFueWx5d3NkZWJsaGViaWNqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2MjQ3MjQsImV4cCI6MjA3NDIwMDcyNH0._nA5MbOSQciz-Xy_zv6Z-IIb0ssrY5ZLVqBtaVoDRM4'
+        
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey)
+        
+        async function testConnection() {
+            try {
+                const { data, error } = await supabase.from('users').select('count').limit(1)
+                if (error) {
+                    document.getElementById('status').innerHTML = `❌ Connection failed: ${error.message}`
+                } else {
+                    document.getElementById('status').innerHTML = '✅ Supabase connection successful!'
+                }
+            } catch (err) {
+                document.getElementById('status').innerHTML = `❌ Error: ${err.message}`
+            }
+        }
+        
+        async function testLogin() {
+            const email = document.getElementById('email').value
+            const password = document.getElementById('password').value
+            const resultDiv = document.getElementById('result')
+            
+            if (!email || !password) {
+                resultDiv.innerHTML = '❌ Please enter email and password'
+                return
+            }
+            
+            resultDiv.innerHTML = '🔄 Testing login...'
+            
+            try {
+                const { data, error } = await supabase.auth.signInWithPassword({
+                    email: email,
+                    password: password
+                })
+                
+                if (error) {
+                    resultDiv.innerHTML = `❌ Login failed: ${error.message}`
+                } else {
+                    resultDiv.innerHTML = `✅ Login successful! User: ${data.user.email}`
+                }
+            } catch (err) {
+                resultDiv.innerHTML = `❌ Error: ${err.message}`
+            }
+        }
+        
+        async function testSignUp() {
+            const email = document.getElementById('email').value
+            const password = document.getElementById('password').value
+            const resultDiv = document.getElementById('result')
+            
+            if (!email || !password) {
+                resultDiv.innerHTML = '❌ Please enter email and password'
+                return
+            }
+            
+            resultDiv.innerHTML = '🔄 Testing sign up...'
+            
+            try {
+                const { data, error } = await supabase.auth.signUp({
+                    email: email,
+                    password: password
+                })
+                
+                if (error) {
+                    resultDiv.innerHTML = `❌ Sign up failed: ${error.message}`
+                } else {
+                    resultDiv.innerHTML = `✅ Sign up successful! Check your email for confirmation.`
+                }
+            } catch (err) {
+                resultDiv.innerHTML = `❌ Error: ${err.message}`
+            }
+        }
+        
+        testConnection()
+    </script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+## Naming Conventions
+- **Tables and Columns**: Always use snake case with lowercase letters (e.g., `user_data` instead of `UserData`).
+- **Variables and Functions**: Also use snake case and lowercase consistently for all variable and function names (e.g., `get_user_data`).
+
+## Error Handling
+- Always log errors in a consistent format.  
+- Handle exceptions gracefully and provide meaningful error messages.
+
+## Configuration
+- Store all environment-specific settings (like database URLs) in a config file or environment variables, not in the code.
+
+## Testing and Reviews
+- Ensure all code changes are reviewed or tested before deployment.  
+- Maintain automated tests for critical functions.
+

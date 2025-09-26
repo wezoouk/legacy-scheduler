@@ -16,7 +16,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
+import { CustomCalendar } from "@/components/ui/custom-calendar";
+import { CustomTimePicker } from "@/components/ui/custom-time-picker";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { useMessages } from "@/lib/use-messages";
@@ -73,6 +74,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
   const [showTemplates, setShowTemplates] = useState(false);
   const [showEmailPreview, setShowEmailPreview] = useState(false);
   const [useRichText, setUseRichText] = useState(false);
+  const [isUsingTemplate, setIsUsingTemplate] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
@@ -212,8 +214,9 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
   };
 
   const handleTemplateSelect = (template: EmailTemplate) => {
-    // Get selected recipient names
-    const selectedRecipientNames = selectedRecipients
+    // Get selected recipient names from form data
+    const selectedRecipientIds = watch('recipientIds') || [];
+    const selectedRecipientNames = selectedRecipientIds
       .map(id => recipients.find(r => r.id === id)?.name)
       .filter(Boolean);
     
@@ -235,7 +238,11 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
     
     setValue('title', processedSubject);
     setValue('content', processedContent);
+    
+    // Force rich text mode for templates since they contain HTML
     setUseRichText(true);
+    setIsUsingTemplate(true);
+    setShowTemplates(false);
   };
 
   const onSubmit = async (data: MessageForm) => {
@@ -386,6 +393,8 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
     setUploadedFiles([]);
     setSelectedTypes([]);
     setIsDmsProtected(false);
+    setUseRichText(false);
+    setIsUsingTemplate(false);
     // Clear selected media URLs
     setSelectedVideoUrl(null);
     setSelectedVideoTitle('');
@@ -713,7 +722,15 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => setUseRichText(!useRichText)}
+                  onClick={() => {
+                    setUseRichText(!useRichText);
+                    if (useRichText) {
+                      // If switching to plain text, we're no longer using template
+                      setIsUsingTemplate(false);
+                    }
+                  }}
+                  disabled={isUsingTemplate && useRichText}
+                  title={isUsingTemplate && useRichText ? "Cannot switch to plain text when using HTML template" : ""}
                 >
                   <Type className="w-3 h-3 mr-1" />
                   {useRichText ? 'Plain Text' : 'Rich Text'}
@@ -837,8 +854,8 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
                       {watch("scheduledFor") ? format(new Date(watch("scheduledFor")!), "PPP") : "Pick a date"}
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
+                  <PopoverContent className="w-auto p-0 bg-black">
+                    <CustomCalendar
                       mode="single"
                       selected={watch("scheduledFor") ? new Date(watch("scheduledFor")!) : undefined}
                       onSelect={(date) => {
@@ -850,12 +867,13 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
                         }
                       }}
                       initialFocus
+                      className="bg-black"
                     />
-                    <div className="p-3 border-t space-y-2">
+                    <div className="p-3 border-t border-gray-600 space-y-2 bg-gray-800">
                       <Button
                         variant="outline"
                         size="sm"
-                        className="w-full"
+                        className="w-full bg-gray-700 border-gray-600 text-white hover:bg-gray-600"
                         onClick={() => {
                           const today = new Date();
                           const currentTime = watch("scheduledFor") ? new Date(watch("scheduledFor")!) : new Date();
@@ -868,7 +886,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="w-full text-muted-foreground hover:text-destructive"
+                        className="w-full text-gray-300 hover:text-red-400 hover:bg-gray-700"
                         onClick={() => setValue("scheduledFor", undefined)}
                       >
                         <X className="h-3 w-3 mr-1" />
@@ -877,16 +895,16 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
                     </div>
                   </PopoverContent>
                 </Popover>
-                <Input
-                  type="time"
+                <CustomTimePicker
                   value={watch("scheduledFor") ? new Date(watch("scheduledFor")!).toTimeString().slice(0, 5) : ""}
-                  onChange={(e) => {
+                  onChange={(timeValue) => {
                     const currentDate = watch("scheduledFor") ? new Date(watch("scheduledFor")!) : new Date();
-                    const [hours, minutes] = e.target.value.split(':');
+                    const [hours, minutes] = timeValue.split(':');
                     currentDate.setHours(parseInt(hours) || 0, parseInt(minutes) || 0);
                     setValue("scheduledFor", currentDate.toISOString());
                   }}
                   disabled={!watch("scheduledFor")}
+                  placeholder="Select time"
                 />
               </div>
               <p className="text-xs text-muted-foreground">
@@ -931,7 +949,11 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
           onOpenChange={setShowEmailPreview}
           subject={watch('title') || 'Your Message Subject'}
           content={watch('content') || ''}
-          recipientName="Preview Recipient"
+          recipientName={
+            watch('recipientIds') && watch('recipientIds').length > 0
+              ? recipients.find(r => r.id === watch('recipientIds')[0])?.name || "Recipient"
+              : "Recipient"
+          }
           senderName="Your Name"
         />
         

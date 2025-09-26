@@ -11,7 +11,7 @@ export interface EmailDeliveryResult {
 
 export interface EmailAttachment {
   filename: string;
-  content: string; // base64 encoded
+  content: string; // base64 encoded or URL
   contentType: string;
 }
 
@@ -64,6 +64,48 @@ export class EmailService {
     }
   }
 
+  private static async processAttachments(request: SendEmailRequest): Promise<SendEmailRequest> {
+    if (!request.attachments || request.attachments.length === 0) {
+      return request;
+    }
+
+    const processedAttachments: EmailAttachment[] = [];
+
+    for (const attachment of request.attachments) {
+      try {
+        // If content is a URL, fetch the file and convert to base64
+        if (attachment.content.startsWith('http')) {
+          console.log('Fetching attachment from URL:', attachment.content);
+          const response = await fetch(attachment.content);
+          if (response.ok) {
+            const arrayBuffer = await response.arrayBuffer();
+            const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+            processedAttachments.push({
+              ...attachment,
+              content: base64
+            });
+          } else {
+            console.warn('Failed to fetch attachment:', attachment.content);
+            // Keep original content as fallback
+            processedAttachments.push(attachment);
+          }
+        } else {
+          // Content is already base64 or text
+          processedAttachments.push(attachment);
+        }
+      } catch (error) {
+        console.error('Error processing attachment:', attachment.filename, error);
+        // Keep original content as fallback
+        processedAttachments.push(attachment);
+      }
+    }
+
+    return {
+      ...request,
+      attachments: processedAttachments
+    };
+  }
+
   private static async callEdgeFunction(functionName: string, payload: any): Promise<any> {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -92,13 +134,35 @@ export class EmailService {
   static async sendEmail(request: SendEmailRequest): Promise<EmailDeliveryResult> {
     try {
       console.log('Sending email via edge function:', request);
+      
+      // Process content to replace placeholders
+      const processedContent = request.content
+        .replace(/\[Name\]/g, request.recipientName)
+        .replace(/\[Recipient Name\]/g, request.recipientName)
+        .replace(/\[Your Name\]/g, 'Legacy Scheduler');
+
+      const processedSubject = request.subject
+        .replace(/\[Name\]/g, request.recipientName)
+        .replace(/\[Recipient Name\]/g, request.recipientName)
+        .replace(/\[Your Name\]/g, 'Legacy Scheduler');
+
+      // Create request with processed content
+      const contentProcessedRequest = {
+        ...request,
+        subject: processedSubject,
+        content: processedContent
+      };
+      
+      // Process attachments to fetch file content from URLs
+      const processedRequest = await this.processAttachments(contentProcessedRequest);
+      
       // Optional override: force using development sender for testing scheduled emails
       const forceDev = import.meta.env.VITE_FORCE_DEV_EMAIL === 'true';
       if (forceDev) {
-        return await this.sendEmailDirect(request);
+        return await this.sendEmailDirect(processedRequest);
       }
       
-      const result = await this.callEdgeFunction('send-email', request);
+      const result = await this.callEdgeFunction('send-email', processedRequest);
       
       // Update delivery status to pending
       if (result.success && result.messageId) {

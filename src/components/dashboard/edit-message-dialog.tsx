@@ -10,7 +10,8 @@ import { EmailPreviewDialog } from "@/components/dashboard/email-preview-dialog"
 import { type EmailTemplate } from "@/lib/email-templates";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar } from "@/components/ui/calendar";
+import { CustomCalendar } from "@/components/ui/custom-calendar";
+import { CustomTimePicker } from "@/components/ui/custom-time-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,6 +40,7 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
   const [showTemplates, setShowTemplates] = useState(false);
   const [showEmailPreview, setShowEmailPreview] = useState(false);
   const [useRichText, setUseRichText] = useState(false);
+  const [isUsingTemplate, setIsUsingTemplate] = useState(false);
   const [videoRecording, setVideoRecording] = useState<Blob | null>(null);
   const [audioRecording, setAudioRecording] = useState<Blob | null>(null);
   const [existingVideoUrl, setExistingVideoUrl] = useState<string>(message?.cipherBlobUrl || message?.videoRecording || '');
@@ -194,6 +196,8 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
     setTitle(processedSubject);
     setContent(processedContent);
     setUseRichText(true);
+    setIsUsingTemplate(true);
+    setShowTemplates(false);
   };
 
   const handleSave = async () => {
@@ -379,7 +383,15 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => setUseRichText(!useRichText)}
+                  onClick={() => {
+                    setUseRichText(!useRichText);
+                    if (useRichText) {
+                      // If switching to plain text, we're no longer using template
+                      setIsUsingTemplate(false);
+                    }
+                  }}
+                  disabled={isUsingTemplate && useRichText}
+                  title={isUsingTemplate && useRichText ? "Cannot switch to plain text when using HTML template" : ""}
                 >
                   <Type className="w-3 h-3 mr-1" />
                   {useRichText ? 'Plain Text' : 'Rich Text'}
@@ -612,18 +624,19 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
                     {scheduledDate ? format(scheduledDate, 'PPP') : 'Pick a date'}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <Calendar
+                <PopoverContent className="w-auto p-0 bg-black">
+                  <CustomCalendar
                     mode="single"
                     selected={scheduledDate}
                     onSelect={setScheduledDate}
                     initialFocus
+                    className="bg-black"
                   />
-                  <div className="p-3 border-t space-y-2">
+                  <div className="p-3 border-t border-gray-600 space-y-2 bg-gray-800">
                     <Button
                       variant="outline"
                       size="sm"
-                      className="w-full"
+                      className="w-full bg-gray-700 border-gray-600 text-white hover:bg-gray-600"
                       onClick={() => {
                         const today = new Date();
                         setScheduledDate(today);
@@ -637,7 +650,7 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="w-full text-muted-foreground hover:text-destructive"
+                      className="w-full text-gray-300 hover:text-red-400 hover:bg-gray-700"
                       onClick={() => {
                         setScheduledDate(undefined);
                         setScheduledTime('');
@@ -652,12 +665,11 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
             </div>
             <div>
               <Label htmlFor="time">Schedule Time</Label>
-              <Input
-                id="time"
-                type="time"
+              <CustomTimePicker
                 value={scheduledTime}
-                onChange={(e) => setScheduledTime(e.target.value)}
+                onChange={setScheduledTime}
                 disabled={!scheduledDate}
+                placeholder="Select time"
               />
             </div>
           </div>
@@ -683,7 +695,11 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
           onOpenChange={setShowEmailPreview}
           subject={title || 'Your Message Subject'}
           content={content || ''}
-          recipientName="Preview Recipient"
+          recipientName={
+            selectedRecipients.length > 0
+              ? recipients.find(r => r.id === selectedRecipients[0])?.name || "Recipient"
+              : "Recipient"
+          }
           senderName="Your Name"
         />
       </DialogContent>

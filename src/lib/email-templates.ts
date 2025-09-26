@@ -17,44 +17,49 @@ export const emailTemplates: EmailTemplate[] = [
     subject: '🎂 Happy Birthday, [Name]!',
     preview: 'Colorful birthday wishes with party elements',
     content: `
-      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 0; border-radius: 16px; overflow: hidden;">
-        <div style="text-align: center; padding: 40px 20px; color: white;">
-          <div style="font-size: 48px; margin-bottom: 16px;">🎂🎉🎈</div>
-          <h1 style="font-size: 32px; font-weight: bold; margin: 0 0 8px 0; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">Happy Birthday!</h1>
-          <p style="font-size: 18px; margin: 0; opacity: 0.9;">Wishing you joy, love, and wonderful memories</p>
-        </div>
-        
-        <div style="background: white; padding: 32px; margin: 0;">
-          <p style="font-size: 16px; line-height: 1.6; color: #333; margin-bottom: 20px;">
-            Dear [Name],
-          </p>
-          <p style="font-size: 16px; line-height: 1.6; color: #333; margin-bottom: 20px;">
-            On this special day, I wanted to take a moment to celebrate you and all the joy you bring to the world. 
-            Your birthday is a perfect reminder of how grateful I am to have you in my life.
-          </p>
-          <p style="font-size: 16px; line-height: 1.6; color: #333; margin-bottom: 24px;">
-            May this new year of your life be filled with love, laughter, and all your heart's desires. 
-            You deserve all the happiness in the world! 🌟
-          </p>
-          
-          <div style="text-align: center; margin: 32px 0;">
-            <div style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 24px; border-radius: 25px; font-weight: bold;">
-              🎁 Celebrate Your Special Day! 🎁
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width: 100%; max-width: 600px; margin: 0 auto; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+        <tr>
+          <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); background-color: #667eea; border-radius: 16px 16px 0 0; padding: 40px 20px; text-align: center; color: white;">
+            <div style="font-size: 48px; margin-bottom: 16px;">🎂🎉🎈</div>
+            <h1 style="font-size: 32px; font-weight: bold; margin: 0 0 8px 0; text-shadow: 0 2px 4px rgba(0,0,0,0.3); color: white;">Happy Birthday!</h1>
+            <p style="font-size: 18px; margin: 0; opacity: 0.9; color: white;">Wishing you joy, love, and wonderful memories</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background: white; padding: 32px;">
+            <p style="font-size: 16px; line-height: 1.6; color: #333; margin-bottom: 20px;">
+              Dear [Name],
+            </p>
+            <p style="font-size: 16px; line-height: 1.6; color: #333; margin-bottom: 20px;">
+              On this special day, I wanted to take a moment to celebrate you and all the joy you bring to the world. 
+              Your birthday is a perfect reminder of how grateful I am to have you in my life.
+            </p>
+            <p style="font-size: 16px; line-height: 1.6; color: #333; margin-bottom: 24px;">
+              May this new year of your life be filled with love, laughter, and all your heart's desires. 
+              You deserve all the happiness in the world! 🌟
+            </p>
+            
+            <div style="text-align: center; margin: 32px 0;">
+              <div style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); background-color: #667eea; color: white; padding: 12px 24px; border-radius: 25px; font-weight: bold;">
+                🎁 Celebrate Your Special Day! 🎁
+              </div>
             </div>
-          </div>
-          
-          <p style="font-size: 16px; line-height: 1.6; color: #333; margin-bottom: 0;">
-            With love and birthday wishes,<br>
-            <strong>[Your Name]</strong>
-          </p>
-        </div>
+            
+            <p style="font-size: 16px; line-height: 1.6; color: #333; margin-bottom: 0;">
+              With love and birthday wishes,<br>
+              <strong>[Your Name]</strong>
+            </p>
+          </td>
+        </tr>
         
-        <div style="background: #f8f9fa; padding: 20px; text-align: center;">
-          <p style="font-size: 12px; color: #666; margin: 0;">
-            This message was sent with love through Legacy Scheduler 💝
-          </p>
-        </div>
-      </div>
+        <tr>
+          <td style="background: #f8f9fa; padding: 20px; text-align: center; border-radius: 0 0 16px 16px;">
+            <p style="font-size: 12px; color: #666; margin: 0;">
+              This message was sent with love through Legacy Scheduler 💝
+            </p>
+          </td>
+        </tr>
+      </table>
     `
   },
   {

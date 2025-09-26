@@ -97,7 +97,7 @@ export function useMessages() {
   const { recipients } = useRecipients();
 
   useEffect(() => {
-    if (!authUser.id) {
+    if (!authUser.id || !authUser.isAuthenticated) {
       setMessages([]);
       setIsLoading(false);
       return;
@@ -108,7 +108,7 @@ export function useMessages() {
 
   // Auto-refresh messages every 10 seconds to catch status updates from scheduled service (which checks every 5 minutes)
   useEffect(() => {
-    if (!authUser.id) return;
+    if (!authUser.id || !authUser.isAuthenticated) return;
 
     const interval = setInterval(() => {
       // Only refresh if we have scheduled messages that might change status
@@ -138,7 +138,7 @@ export function useMessages() {
   }, [authUser.id]);
 
   const fetchMessages = async () => {
-    if (!authUser.id) return;
+    if (!authUser.id || !authUser.isAuthenticated) return;
 
     try {
       // FORCE Supabase only - NO localStorage fallback
@@ -146,7 +146,9 @@ export function useMessages() {
         throw new Error('Supabase not configured - localStorage fallback disabled');
       }
       
-      const isSupabaseUser = authUser.id && authUser.id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+      // Check if user is authenticated with Supabase (has a valid session)
+      const { data: { session } } = await supabase.auth.getSession();
+      const isSupabaseUser = session?.user;
       
       if (!isSupabaseUser) {
         throw new Error('User not authenticated with Supabase - localStorage fallback disabled');
@@ -157,14 +159,14 @@ export function useMessages() {
     } catch (error) {
       console.error('Error fetching messages:', error);
       setMessages([]); // Clear messages on error - NO FALLBACK
-      throw error; // NO FALLBACK - force user to fix Supabase configuration
+      throw error; // NO FALLBACK - Supabase only
     } finally {
       setIsLoading(false);
     }
   };
 
   const loadFromDatabase = async () => {
-    if (!authUser.id || !supabase) return;
+    if (!authUser.id || !authUser.isAuthenticated || !supabase) return;
 
     try {
       let query = supabase
@@ -331,7 +333,9 @@ export function useMessages() {
         throw new Error('Supabase not configured - localStorage fallback disabled');
       }
       
-      const isSupabaseUser = authUser.id && authUser.id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+      // Check if user is authenticated with Supabase (has a valid session)
+      const { data: { session } } = await supabase.auth.getSession();
+      const isSupabaseUser = session?.user;
       
       if (!isSupabaseUser) {
         throw new Error('User not authenticated with Supabase - localStorage fallback disabled');
@@ -343,7 +347,7 @@ export function useMessages() {
       console.error('Error saving message:', error);
       // Revert the optimistic update on error
       setMessages(messages);
-      throw error; // NO FALLBACK - force user to fix Supabase configuration
+      throw error; // NO FALLBACK - Supabase only
     }
 
     return newMessage;
@@ -372,7 +376,9 @@ export function useMessages() {
         throw new Error('Supabase not configured - localStorage fallback disabled');
       }
       
-      const isSupabaseUser = authUser.id && authUser.id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+      // Check if user is authenticated with Supabase (has a valid session)
+      const { data: { session } } = await supabase.auth.getSession();
+      const isSupabaseUser = session?.user;
       
       if (!isSupabaseUser) {
         throw new Error('User not authenticated with Supabase - localStorage fallback disabled');
@@ -400,7 +406,9 @@ export function useMessages() {
         throw new Error('Supabase not configured - localStorage fallback disabled');
       }
       
-      const isSupabaseUser = authUser.id && authUser.id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+      // Check if user is authenticated with Supabase (has a valid session)
+      const { data: { session } } = await supabase.auth.getSession();
+      const isSupabaseUser = session?.user;
       
       if (!isSupabaseUser) {
         throw new Error('User not authenticated with Supabase - localStorage fallback disabled');
@@ -417,7 +425,10 @@ export function useMessages() {
   const markAsDeletedInDatabase = async (id: string) => {
     if (!supabase) throw new Error('Supabase not configured');
 
-    // Try to delete the message directly instead of soft delete
+    // Find the message to get media URLs before deletion
+    const messageToDelete = messages.find(msg => msg.id === id);
+    
+    // Delete the message from database (but keep media files in storage)
     const { error } = await supabase
       .from('messages')
       .delete()
@@ -429,6 +440,11 @@ export function useMessages() {
     }
 
     console.log('Message deleted from database successfully');
+    console.log('Media files preserved in Supabase Storage for reuse:', {
+      videoUrl: messageToDelete?.cipherBlobUrl,
+      audioUrl: messageToDelete?.audioRecording,
+      thumbnailUrl: messageToDelete?.thumbnailUrl
+    });
     
     // Update local state immediately by removing the deleted message
     const updatedMessages = messages.filter(msg => msg.id !== id);
@@ -454,7 +470,9 @@ export function useMessages() {
         throw new Error('Supabase not configured - localStorage fallback disabled');
       }
       
-      const isSupabaseUser = authUser.id && authUser.id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+      // Check if user is authenticated with Supabase (has a valid session)
+      const { data: { session } } = await supabase.auth.getSession();
+      const isSupabaseUser = session?.user;
       
       if (!isSupabaseUser) {
         throw new Error('User not authenticated with Supabase - localStorage fallback disabled');

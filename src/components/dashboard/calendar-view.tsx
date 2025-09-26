@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Calendar } from '@/components/ui/calendar';
+import { CustomCalendar } from '@/components/ui/custom-calendar';
 import { EditMessageDialog } from '@/components/dashboard/edit-message-dialog';
 import { CreateMessageDialog } from '@/components/dashboard/create-message-dialog';
 import { useMessages } from '@/lib/use-messages';
@@ -195,7 +195,7 @@ export function CalendarView() {
               </div>
             </CardHeader>
             <CardContent>
-              <Calendar
+              <CustomCalendar
                 mode="single"
                 selected={selectedDate}
                 onSelect={handleDateClick}
@@ -206,17 +206,17 @@ export function CalendarView() {
                 }}
                 modifiersStyles={{
                   hasMessages: { 
-                    backgroundColor: '#dbeafe', 
-                    color: '#1e40af',
+                    backgroundColor: '#3b82f6', 
+                    color: '#ffffff',
                     fontWeight: 'bold'
                   },
                 }}
-                className="rounded-md border"
+                className="rounded-md border border-gray-600"
               />
-              <div className="mt-4 text-sm text-muted-foreground">
+              <div className="mt-4 text-sm text-gray-300">
                 <div className="flex items-center space-x-4">
                   <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 bg-blue-100 border border-blue-300 rounded"></div>
+                    <div className="w-3 h-3 bg-blue-500 border border-blue-400 rounded"></div>
                     <span>Has scheduled messages</span>
                   </div>
                 </div>

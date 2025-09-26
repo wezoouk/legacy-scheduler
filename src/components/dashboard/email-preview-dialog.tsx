@@ -30,10 +30,12 @@ export function EmailPreviewDialog({
   // Process content to replace placeholders
   const processedContent = content
     .replace(/\[Name\]/g, recipientName)
+    .replace(/\[Recipient Name\]/g, recipientName)
     .replace(/\[Your Name\]/g, senderName);
 
   const processedSubject = subject
     .replace(/\[Name\]/g, recipientName)
+    .replace(/\[Recipient Name\]/g, recipientName)
     .replace(/\[Your Name\]/g, senderName);
 
   // Check if content is already HTML or plain text
@@ -111,7 +113,9 @@ export function EmailPreviewDialog({
   };
 
   // Create email HTML with proper structure
-  const emailHtml = isHtmlContent ? processedContent : `
+  const emailHtml = isHtmlContent 
+    ? `${processedContent}${generateAttachmentHtml()}`
+    : `
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: white; border: 1px solid #e5e7eb; border-radius: 8px;">
       <div style="padding: 32px;">
         <h1 style="color: #1f2937; font-size: 24px; font-weight: bold; margin-bottom: 16px;">${processedSubject}</h1>
@@ -260,7 +264,7 @@ export function EmailPreviewDialog({
                         <meta name="viewport" content="width=device-width, initial-scale=1.0">
                         <title>Email Preview</title>
                       </head>
-                      <body style="margin: 0; padding: 0; background: #f9fafb;">
+                      <body style="margin: 0; padding: 20px; background: ${isHtmlContent ? 'transparent' : '#f9fafb'};">
                         ${emailHtml}
                       </body>
                       </html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Scheduled Messages Debug</title>
+</head>
+<body>
+    <h1>Scheduled Messages Debug</h1>
+    <button onclick="testScheduledService()">Test Scheduled Service</button>
+    <button onclick="checkDatabase()">Check Database</button>
+    <div id="output"></div>
+
+    <script type="module">
+        // Import Supabase client
+        import { createClient } from 'https://cdn.skypack.dev/@supabase/supabase-js@2';
+        
+        const supabaseUrl = 'https://cvhanylywsdeblhebicj.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2aGFueWx5d3NkZWJsZGViaWNqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2MjQ3MjQsImV4cCI6MjA3NDIwMDcyNH0._nA5MbOSQciz-Xy_zv6Z-IIb0ssrY5ZLVqBtaVoDRM4';
+        
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        window.testScheduledService = async function() {
+            const output = document.getElementById('output');
+            output.innerHTML = '<h3>Testing Scheduled Service...</h3>';
+            
+            try {
+                const now = new Date().toISOString();
+                console.log('Current time:', now);
+                
+                // Check all SCHEDULED messages
+                const { data: allScheduled, error: allError } = await supabase
+                    .from('messages')
+                    .select('*')
+                    .eq('status', 'SCHEDULED');
+                    
+                if (allError) {
+                    output.innerHTML += `<p style="color: red;">Error: ${allError.message}</p>`;
+                    return;
+                }
+                
+                output.innerHTML += `<p>Found ${allScheduled?.length || 0} scheduled messages total</p>`;
+                
+                if (allScheduled && allScheduled.length > 0) {
+                    for (const msg of allScheduled) {
+                        const scheduledTime = new Date(msg.scheduledFor);
+                        const isPast = scheduledTime <= new Date();
+                        output.innerHTML += `
+                            <div style="border: 1px solid #ccc; margin: 10px; padding: 10px;">
+                                <h4>${msg.title}</h4>
+                                <p>Scheduled for: ${msg.scheduledFor}</p>
+                                <p>Current time: ${now}</p>
+                                <p>Is past due: <strong style="color: ${isPast ? 'red' : 'green'}">${isPast}</strong></p>
+                                <p>Recipients: ${JSON.stringify(msg.recipientIds)}</p>
+                                <p>Status: ${msg.status}</p>
+                            </div>
+                        `;
+                    }
+                }
+                
+                // Check messages due now
+                const { data: dueMessages, error: dueError } = await supabase
+                    .from('messages')
+                    .select('*')
+                    .eq('status', 'SCHEDULED')
+                    .lte('scheduledFor', now);
+                    
+                if (dueError) {
+                    output.innerHTML += `<p style="color: red;">Error checking due messages: ${dueError.message}</p>`;
+                } else {
+                    output.innerHTML += `<p><strong>Messages due for sending: ${dueMessages?.length || 0}</strong></p>`;
+                }
+                
+            } catch (error) {
+                output.innerHTML += `<p style="color: red;">Error: ${error.message}</p>`;
+                console.error('Test error:', error);
+            }
+        };
+
+        window.checkDatabase = async function() {
+            const output = document.getElementById('output');
+            output.innerHTML = '<h3>Checking Database Connection...</h3>';
+            
+            try {
+                // Test basic connection
+                const { data, error } = await supabase
+                    .from('messages')
+                    .select('count(*)')
+                    .limit(1);
+                    
+                if (error) {
+                    output.innerHTML += `<p style="color: red;">Database Error: ${error.message}</p>`;
+                } else {
+                    output.innerHTML += `<p style="color: green;">Database connection successful</p>`;
+                }
+                
+                // Check auth
+                const { data: { user }, error: authError } = await supabase.auth.getUser();
+                if (authError) {
+                    output.innerHTML += `<p style="color: orange;">Auth check failed: ${authError.message}</p>`;
+                } else if (user) {
+                    output.innerHTML += `<p style="color: green;">Authenticated as: ${user.email}</p>`;
+                } else {
+                    output.innerHTML += `<p style="color: orange;">Not authenticated</p>`;
+                }
+                
+            } catch (error) {
+                output.innerHTML += `<p style="color: red;">Error: ${error.message}</p>`;
+                console.error('Database test error:', error);
+            }
+        };
+    </script>
+</body>
+</html>

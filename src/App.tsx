@@ -16,10 +16,6 @@ import { SiteCustomization } from '@/pages/admin/site-customization';
 import { AdminProfile } from '@/pages/admin/admin-profile';
 import { ProfilePage } from '@/pages/dashboard/profile';
 import { StorageNotification } from '@/components/ui/storage-notification';
-import { DebugButton } from '@/components/debug-button';
-import { SchemaCheck } from '@/components/schema-check';
-import { RecipientDebug } from '@/components/recipient-debug';
-import { RecipientTest } from '@/components/recipient-test';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -139,10 +135,6 @@ function AppRoutes() {
           <Route path="profile" element={<AdminProfile />} />
         </Route>
       </Routes>
-      <DebugButton />
-      <SchemaCheck />
-      <RecipientDebug />
-      <RecipientTest />
     </div>
   );
 }

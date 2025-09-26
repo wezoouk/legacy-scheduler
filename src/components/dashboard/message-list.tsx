@@ -785,7 +785,11 @@ export function MessageList() {
           onOpenChange={() => setPreviewingMessage(null)}
           subject={previewingMessage.title}
           content={previewingMessage.content}
-          recipientName="Preview Recipient"
+          recipientName={
+            previewingMessage.recipientIds && previewingMessage.recipientIds.length > 0
+              ? recipients.find(r => r.id === previewingMessage.recipientIds[0])?.name || "Recipient"
+              : "Recipient"
+          }
           senderName="Your Name"
           message={previewingMessage}
         />

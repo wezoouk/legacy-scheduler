@@ -24,19 +24,40 @@ export function AudioPreviewDialog({
 
   const audioUrl = message?.audioRecording || message?.cipherBlobUrl;
   console.log('AudioPreviewDialog audioUrl:', audioUrl);
+  console.log('AudioPreviewDialog message:', message);
 
   useEffect(() => {
     if (audioRef.current) {
       const audio = audioRef.current;
       
       const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-      const handleDurationChange = () => setDuration(audio.duration);
+      const handleDurationChange = () => {
+        console.log('Audio duration changed:', audio.duration);
+        setDuration(audio.duration);
+      };
+      const handleLoadedMetadata = () => {
+        console.log('Audio metadata loaded, duration:', audio.duration);
+        setDuration(audio.duration);
+      };
+      const handleCanPlay = () => {
+        console.log('Audio can play, duration:', audio.duration);
+        if (audio.duration && !isNaN(audio.duration)) {
+          setDuration(audio.duration);
+        }
+      };
+      const handleError = (e: any) => {
+        console.error('Audio error:', e);
+        console.error('Audio URL:', audioUrl);
+      };
       const handlePlay = () => setIsPlaying(true);
       const handlePause = () => setIsPlaying(false);
       const handleEnded = () => setIsPlaying(false);
 
       audio.addEventListener('timeupdate', handleTimeUpdate);
       audio.addEventListener('durationchange', handleDurationChange);
+      audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.addEventListener('canplay', handleCanPlay);
+      audio.addEventListener('error', handleError);
       audio.addEventListener('play', handlePlay);
       audio.addEventListener('pause', handlePause);
       audio.addEventListener('ended', handleEnded);
@@ -44,19 +65,51 @@ export function AudioPreviewDialog({
       return () => {
         audio.removeEventListener('timeupdate', handleTimeUpdate);
         audio.removeEventListener('durationchange', handleDurationChange);
+        audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        audio.removeEventListener('canplay', handleCanPlay);
+        audio.removeEventListener('error', handleError);
         audio.removeEventListener('play', handlePlay);
         audio.removeEventListener('pause', handlePause);
         audio.removeEventListener('ended', handleEnded);
       };
     }
-  }, []);
+  }, [audioUrl]);
+
+  // Reset state when dialog opens and try to load duration
+  useEffect(() => {
+    if (open) {
+      setCurrentTime(0);
+      setIsPlaying(false);
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        // Try to force load metadata
+        audioRef.current.load();
+        
+        // Try to get duration after a short delay
+        setTimeout(() => {
+          if (audioRef.current && audioRef.current.duration && !isNaN(audioRef.current.duration)) {
+            console.log('Manual duration check:', audioRef.current.duration);
+            setDuration(audioRef.current.duration);
+          }
+        }, 100);
+      }
+    }
+  }, [open, audioUrl]);
 
   const togglePlayPause = () => {
     if (audioRef.current) {
       if (isPlaying) {
         audioRef.current.pause();
       } else {
-        audioRef.current.play();
+        audioRef.current.play().then(() => {
+          // Check duration again when play succeeds
+          if (audioRef.current && audioRef.current.duration && !isNaN(audioRef.current.duration)) {
+            console.log('Duration on play:', audioRef.current.duration);
+            setDuration(audioRef.current.duration);
+          }
+        }).catch(error => {
+          console.error('Play failed:', error);
+        });
       }
     }
   };
@@ -70,6 +123,7 @@ export function AudioPreviewDialog({
   };
 
   const formatTime = (time: number) => {
+    if (!time || isNaN(time)) return '0:00';
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
@@ -152,9 +206,16 @@ export function AudioPreviewDialog({
             
             {/* Audio Visualizer */}
             <div className="mb-8">
-              <div className="w-32 h-32 bg-white rounded-full shadow-lg flex items-center justify-center mb-4">
-                <Volume2 className="w-16 h-16 text-blue-600" />
-              </div>
+              <button
+                onClick={togglePlayPause}
+                className="w-32 h-32 bg-white rounded-full shadow-lg hover:shadow-xl transition-all flex items-center justify-center group border-4 border-blue-100 hover:border-blue-200"
+              >
+                {isPlaying ? (
+                  <Pause className="w-16 h-16 text-blue-600 group-hover:text-blue-700" />
+                ) : (
+                  <Play className="w-16 h-16 text-blue-600 group-hover:text-blue-700 ml-1" />
+                )}
+              </button>
             </div>
 
             {/* Audio Controls */}
@@ -168,12 +229,12 @@ export function AudioPreviewDialog({
                   <input
                     type="range"
                     min="0"
-                    max={duration || 0}
+                    max={duration || 100}
                     value={currentTime}
                     onChange={handleSeek}
                     className="flex-1 h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer"
                     style={{
-                      background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${(currentTime / duration) * 100}%, #d1d5db ${(currentTime / duration) * 100}%, #d1d5db 100%)`
+                      background: duration > 0 ? `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${(currentTime / duration) * 100}%, #d1d5db ${(currentTime / duration) * 100}%, #d1d5db 100%)` : '#d1d5db'
                     }}
                   />
                   <span className="text-sm font-mono text-gray-600">
@@ -184,14 +245,6 @@ export function AudioPreviewDialog({
 
               {/* Control Buttons */}
               <div className="flex items-center justify-center space-x-4">
-                <Button
-                  size="lg"
-                  className="bg-blue-600 hover:bg-blue-700 text-white rounded-full w-16 h-16"
-                  onClick={togglePlayPause}
-                >
-                  {isPlaying ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8 ml-1" />}
-                </Button>
-                
                 <Button
                   size="sm"
                   variant="outline"

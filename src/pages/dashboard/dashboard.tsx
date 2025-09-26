@@ -9,8 +9,6 @@ import { DmsConfiguration } from '@/components/dashboard/dms-configuration';
 import { CreateMessageDialog } from '@/components/dashboard/create-message-dialog';
 import { MigrationDialog } from '@/components/dashboard/migration-dialog';
 import { StorageStatus } from '@/components/dashboard/storage-status';
-import { DebugInfo } from '@/components/dashboard/debug-info';
-import { DebugScheduledMessages } from '@/components/debug-scheduled-messages';
 import { EmailSetupGuide } from '@/components/ui/email-setup-guide';
 import { VideoGallery } from '@/components/dashboard/video-gallery';
 import { AudioGallery } from '@/components/dashboard/audio-gallery';
@@ -76,7 +74,6 @@ export function Dashboard() {
             <TabsTrigger value="calendar">Calendar</TabsTrigger>
             <TabsTrigger value="recording">Recording</TabsTrigger>
             <TabsTrigger value="dms">Dead Man's Switch</TabsTrigger>
-            <TabsTrigger value="debug">Debug</TabsTrigger>
           </TabsList>
 
           <TabsContent value="messages">
@@ -103,12 +100,6 @@ export function Dashboard() {
             <DmsConfiguration />
           </TabsContent>
 
-          <TabsContent value="debug">
-            <div className="space-y-6">
-              <DebugScheduledMessages />
-              <DebugInfo />
-            </div>
-          </TabsContent>
         </Tabs>
 
         {/* Video Gallery */}
@@ -131,7 +122,6 @@ export function Dashboard() {
           onOpenChange={setShowMigrationDialog}
         />
 
-        <DebugInfo />
       </div>
     </div>
   );

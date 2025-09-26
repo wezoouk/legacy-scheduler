@@ -22,7 +22,14 @@ import {
   CheckCircle,
   AlertCircle,
   Save,
-  X
+  X,
+  Video,
+  Mic,
+  FileText,
+  HardDrive,
+  Activity,
+  TrendingUp,
+  Database
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '../../../hooks/use-toast';
@@ -36,6 +43,18 @@ interface User {
   lastLogin?: Date;
   totalMessages: number;
   totalRecipients: number;
+  // Detailed statistics
+  videoMessages: number;
+  audioMessages: number;
+  dmsMessages: number;
+  emailMessages: number;
+  fileAttachments: number;
+  scheduledMessages: number;
+  sentMessages: number;
+  draftMessages: number;
+  failedMessages: number;
+  totalStorageUsed: number; // in bytes
+  lastActivity?: Date;
 }
 
 export function AdminUsers() {
@@ -55,7 +74,7 @@ export function AdminUsers() {
     failed: messages.filter(msg => msg.status === 'FAILED').length,
   };
 
-  // Get real user data from localStorage
+  // Get real user data from localStorage with detailed statistics
   const getRealUserData = (): User[] => {
     try {
       const usersData = localStorage.getItem('legacyScheduler_users');
@@ -70,6 +89,64 @@ export function AdminUsers() {
         const userRecipientsData = localStorage.getItem(`recipients_${user.id}`);
         const userRecipients = userRecipientsData ? JSON.parse(userRecipientsData) : [];
         
+        // Calculate detailed statistics
+        const videoMessages = userMessages.filter((msg: any) => 
+          (msg.types && msg.types.includes('VIDEO')) || msg.type === 'VIDEO' || msg.cipherBlobUrl || msg.videoRecording
+        ).length;
+        
+        const audioMessages = userMessages.filter((msg: any) => 
+          (msg.types && msg.types.includes('VOICE')) || msg.type === 'VOICE' || msg.audioRecording
+        ).length;
+        
+        const dmsMessages = userMessages.filter((msg: any) => 
+          msg.scope === 'DMS'
+        ).length;
+        
+        const emailMessages = userMessages.filter((msg: any) => 
+          (msg.types && msg.types.includes('EMAIL')) || msg.type === 'EMAIL' || (!msg.types && !msg.type)
+        ).length;
+        
+        const fileAttachments = userMessages.reduce((total: number, msg: any) => {
+          if (msg.attachments && Array.isArray(msg.attachments)) {
+            return total + msg.attachments.length;
+          }
+          return total;
+        }, 0);
+        
+        const scheduledMessages = userMessages.filter((msg: any) => 
+          msg.status === 'SCHEDULED'
+        ).length;
+        
+        const sentMessages = userMessages.filter((msg: any) => 
+          msg.status === 'SENT'
+        ).length;
+        
+        const draftMessages = userMessages.filter((msg: any) => 
+          msg.status === 'DRAFT'
+        ).length;
+        
+        const failedMessages = userMessages.filter((msg: any) => 
+          msg.status === 'FAILED'
+        ).length;
+        
+        // Calculate storage usage (rough estimate)
+        const totalStorageUsed = userMessages.reduce((total: number, msg: any) => {
+          let size = 0;
+          if (msg.cipherBlobUrl || msg.videoRecording) size += 50 * 1024 * 1024; // 50MB per video
+          if (msg.audioRecording) size += 5 * 1024 * 1024; // 5MB per audio
+          if (msg.attachments && Array.isArray(msg.attachments)) {
+            size += msg.attachments.reduce((attSize: number, att: any) => attSize + (att.size || 0), 0);
+          }
+          return total + size;
+        }, 0);
+        
+        // Find last activity (most recent message update)
+        const lastActivity = userMessages.length > 0 
+          ? new Date(Math.max(...userMessages.map((msg: any) => 
+              new Date(msg.updatedAt || msg.createdAt || 0).getTime()
+            )))
+          : undefined;
+        
         return {
           id: user.id,
           name: user.name || 'Unknown User',
@@ -79,6 +156,17 @@ export function AdminUsers() {
           lastLogin: user.lastLogin ? new Date(user.lastLogin) : undefined,
           totalMessages: userMessages.length,
           totalRecipients: userRecipients.length,
+          videoMessages,
+          audioMessages,
+          dmsMessages,
+          emailMessages,
+          fileAttachments,
+          scheduledMessages,
+          sentMessages,
+          draftMessages,
+          failedMessages,
+          totalStorageUsed,
+          lastActivity,
         };
       });
     } catch (error) {
@@ -296,7 +384,17 @@ export function AdminUsers() {
             plan: 'FREE', 
             createdAt: new Date(),
             totalMessages: 0,
-            totalRecipients: 0
+            totalRecipients: 0,
+            videoMessages: 0,
+            audioMessages: 0,
+            dmsMessages: 0,
+            emailMessages: 0,
+            fileAttachments: 0,
+            scheduledMessages: 0,
+            sentMessages: 0,
+            draftMessages: 0,
+            failedMessages: 0,
+            totalStorageUsed: 0
           });
           setEditForm({ name: '', email: '', timezone: 'Europe/London' });
         }}>
@@ -366,6 +464,9 @@ export function AdminUsers() {
                       {user.lastLogin && (
                         <span>Last login {format(user.lastLogin, 'MMM d, yyyy')}</span>
                       )}
+                      {user.lastActivity && (
+                        <span>Last activity {format(user.lastActivity, 'MMM d, yyyy')}</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -378,6 +479,28 @@ export function AdminUsers() {
                   <div className="text-center">
                     <div className="text-lg font-semibold text-gray-900">{user.totalRecipients}</div>
                     <div className="text-xs text-gray-500">Recipients</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-lg font-semibold text-gray-900">{user.videoMessages}</div>
+                    <div className="text-xs text-gray-500">Videos</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-lg font-semibold text-gray-900">{user.audioMessages}</div>
+                    <div className="text-xs text-gray-500">Audio</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-lg font-semibold text-gray-900">{user.dmsMessages}</div>
+                    <div className="text-xs text-gray-500">DMS</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-lg font-semibold text-gray-900">{user.sentMessages}</div>
+                    <div className="text-xs text-gray-500">Sent</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-sm font-semibold text-gray-700">
+                      {(user.totalStorageUsed / (1024 * 1024)).toFixed(1)}MB
+                    </div>
+                    <div className="text-xs text-gray-500">Storage</div>
                   </div>
                   <div className="flex items-center space-x-2">
                     <Button variant="outline" size="sm">
@@ -600,7 +723,136 @@ export function AdminUsers() {
         </CardContent>
       </Card>
 
-      {/* Quick Stats */}
+      {/* Detailed Statistics Overview */}
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
+                <Users className="w-4 h-4 text-purple-600" />
+              </div>
+              <div>
+                <div className="text-lg font-semibold">{users.length}</div>
+                <div className="text-xs text-gray-500">Total Users</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                <Video className="w-4 h-4 text-blue-600" />
+              </div>
+              <div>
+                <div className="text-lg font-semibold">
+                  {users.reduce((sum, user) => sum + user.videoMessages, 0)}
+                </div>
+                <div className="text-xs text-gray-500">Video Messages</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                <Mic className="w-4 h-4 text-green-600" />
+              </div>
+              <div>
+                <div className="text-lg font-semibold">
+                  {users.reduce((sum, user) => sum + user.audioMessages, 0)}
+                </div>
+                <div className="text-xs text-gray-500">Audio Messages</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+                <Shield className="w-4 h-4 text-orange-600" />
+              </div>
+              <div>
+                <div className="text-lg font-semibold">
+                  {users.reduce((sum, user) => sum + user.dmsMessages, 0)}
+                </div>
+                <div className="text-xs text-gray-500">DMS Messages</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                <Mail className="w-4 h-4 text-indigo-600" />
+              </div>
+              <div>
+                <div className="text-lg font-semibold">
+                  {users.reduce((sum, user) => sum + user.emailMessages, 0)}
+                </div>
+                <div className="text-xs text-gray-500">Email Messages</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-pink-100 rounded-full flex items-center justify-center">
+                <FileText className="w-4 h-4 text-pink-600" />
+              </div>
+              <div>
+                <div className="text-lg font-semibold">
+                  {users.reduce((sum, user) => sum + user.fileAttachments, 0)}
+                </div>
+                <div className="text-xs text-gray-500">File Attachments</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
+                <Clock className="w-4 h-4 text-yellow-600" />
+              </div>
+              <div>
+                <div className="text-lg font-semibold">
+                  {users.reduce((sum, user) => sum + user.scheduledMessages, 0)}
+                </div>
+                <div className="text-xs text-gray-500">Scheduled</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-teal-100 rounded-full flex items-center justify-center">
+                <HardDrive className="w-4 h-4 text-teal-600" />
+              </div>
+              <div>
+                <div className="text-lg font-semibold">
+                  {(users.reduce((sum, user) => sum + user.totalStorageUsed, 0) / (1024 * 1024 * 1024)).toFixed(2)}GB
+                </div>
+                <div className="text-xs text-gray-500">Total Storage</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Message Status Overview */}
       <div className="grid md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
@@ -609,7 +861,9 @@ export function AdminUsers() {
                 <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
               </div>
               <div>
-                <div className="text-lg font-semibold">{statusCounts.draft}</div>
+                <div className="text-lg font-semibold">
+                  {users.reduce((sum, user) => sum + user.draftMessages, 0)}
+                </div>
                 <div className="text-xs text-gray-500">Draft Messages</div>
               </div>
             </div>
@@ -623,7 +877,9 @@ export function AdminUsers() {
                 <Clock className="w-4 h-4 text-blue-600" />
               </div>
               <div>
-                <div className="text-lg font-semibold">{statusCounts.scheduled}</div>
+                <div className="text-lg font-semibold">
+                  {users.reduce((sum, user) => sum + user.scheduledMessages, 0)}
+                </div>
                 <div className="text-xs text-gray-500">Scheduled</div>
               </div>
             </div>
@@ -637,7 +893,9 @@ export function AdminUsers() {
                 <CheckCircle className="w-4 h-4 text-green-600" />
               </div>
               <div>
-                <div className="text-lg font-semibold">{statusCounts.sent}</div>
+                <div className="text-lg font-semibold">
+                  {users.reduce((sum, user) => sum + user.sentMessages, 0)}
+                </div>
                 <div className="text-xs text-gray-500">Sent</div>
               </div>
             </div>
@@ -651,7 +909,9 @@ export function AdminUsers() {
                 <AlertCircle className="w-4 h-4 text-red-600" />
               </div>
               <div>
-                <div className="text-lg font-semibold">{statusCounts.failed}</div>
+                <div className="text-lg font-semibold">
+                  {users.reduce((sum, user) => sum + user.failedMessages, 0)}
+                </div>
                 <div className="text-xs text-gray-500">Failed</div>
               </div>
             </div>

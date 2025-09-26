@@ -30,23 +30,7 @@ export function useAuth() {
   return context;
 }
 
-// Simple hash function for demo purposes (NOT for production)
-async function simpleHash(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'legacy_salt');
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function verifyPassword(password: string, hash: string): Promise<boolean> {
-  const computedHash = await simpleHash(password);
-  return computedHash === hash;
-}
-
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2);
-}
+// Removed demo account functions - Supabase only
 
 function isAdminEmail(email: string): boolean {
   const adminEmails = ['davwez@gmail.com', 'admin@legacyscheduler.com'];
@@ -106,50 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const ensureDemoAccounts = async () => {
-    try {
-      const usersData = localStorage.getItem('legacyScheduler_users');
-      let users = usersData ? JSON.parse(usersData) : [];
-      
-      // Check if demo account exists
-      const demoExists = users.find((u: any) => u.email === 'demo@legacyscheduler.com');
-      if (!demoExists) {
-        const demoPasswordHash = await simpleHash('demo123456');
-        const demoUser = {
-          id: 'demo-user-id',
-          email: 'demo@legacyscheduler.com',
-          name: 'Demo User',
-          plan: 'FREE',
-          timezone: 'Europe/London',
-          passwordHash: demoPasswordHash,
-          createdAt: new Date().toISOString(),
-        };
-        users.push(demoUser);
-      }
-      
-      // Check if admin account exists
-      const adminExists = users.find((u: any) => u.email === 'davwez@gmail.com');
-      if (!adminExists) {
-        const adminPasswordHash = await simpleHash('admin123456');
-        const adminUser = {
-          id: 'admin-user-id',
-          email: 'davwez@gmail.com',
-          name: 'Dave Admin',
-          plan: 'LEGACY',
-          timezone: 'Europe/London',
-          passwordHash: adminPasswordHash,
-          createdAt: new Date().toISOString(),
-        };
-        users.push(adminUser);
-      }
-      
-      // Save updated users array
-      localStorage.setItem('legacyScheduler_users', JSON.stringify(users));
-      
-    } catch (error) {
-      console.error('Error ensuring demo accounts:', error);
-    }
-  };
+  // Removed demo accounts - Supabase only
 
   const initializeAuth = async () => {
     try {
@@ -177,21 +118,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (error) {
-      console.log('Supabase not available, using localStorage fallback');
+      console.log('Supabase not available');
     }
 
-    // Fallback to localStorage
-    try {
-      const storedUser = localStorage.getItem('legacyScheduler_user');
-      if (storedUser) {
-        const userData = JSON.parse(storedUser);
-        setUser(userData);
-      }
-    } catch (error) {
-      console.error('Error loading user from localStorage:', error);
-    } finally {
-      setIsLoading(false);
-    }
+    // NO FALLBACK - Supabase only
+    setIsLoading(false);
   };
 
   const loadUserProfile = async (userId: string) => {
@@ -339,7 +270,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return; // Success, user will be loaded by auth state change
       } else {
         console.log('Supabase login error:', error.message);
-        throw new Error(`Supabase login failed: ${error.message}`);
+        // NO FALLBACK - Supabase only
+        throw new Error(`Login failed: ${error.message}`);
       }
     } catch (error) {
       console.log('Supabase login failed:', error);
@@ -390,11 +322,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await supabase.auth.signOut();
       }
     } catch (error) {
-      console.log('Supabase logout failed, using localStorage');
+      console.log('Supabase logout failed');
     }
     
     setUser(null);
-    localStorage.removeItem('legacyScheduler_user');
+    // Supabase only - no localStorage
   };
 
   const updateUser = async (userData: Partial<User>) => {
@@ -414,23 +346,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (error) {
-      console.log('Supabase update failed, using localStorage');
-    }
-
-    // Fallback to localStorage
-    const updatedUser = { ...user, ...userData };
-    setUser(updatedUser);
-    localStorage.setItem('legacyScheduler_user', JSON.stringify(updatedUser));
-    
-    try {
-      const usersData = localStorage.getItem('legacyScheduler_users');
-      const users = usersData ? JSON.parse(usersData) : [];
-      const updatedUsers = users.map((u: any) => 
-        u.id === user.id ? { ...u, ...userData } : u
-      );
-      localStorage.setItem('legacyScheduler_users', JSON.stringify(updatedUsers));
-    } catch (error) {
-      console.error('Error updating user in database:', error);
+      console.log('Supabase update failed');
+      throw error; // NO FALLBACK - Supabase only
     }
   };
 
