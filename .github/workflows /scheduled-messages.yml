@@ -1,0 +1,24 @@
+ name: Process Scheduled Messages
+
+   on:
+     schedule:
+       - cron: '*/1 * * * *' # Run every minute
+     workflow_dispatch: # Allows manual triggering
+
+   jobs:
+     process-messages:
+       runs-on: ubuntu-latest
+       steps:
+         - name: Checkout code
+           uses: actions/checkout@v3
+
+         - name: Call Supabase Edge Function
+           env:
+             SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+             SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+           run: |
+             echo "Calling Supabase Edge Function to process scheduled messages..."
+             curl -X POST "${{ env.SUPABASE_URL }}/functions/v1/process-scheduled-messages" \
+               -H "Authorization: Bearer ${{ env.SUPABASE_ANON_KEY }}" \
+               -H "Content-Type: application/json" \
+               -d '{}'
