@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Media URLs</title>
+</head>
+<body>
+    <h1>Debug Media URLs in localStorage</h1>
+    <div id="output"></div>
+    
+    <script>
+        function checkLocalStorageMessages() {
+            const output = document.getElementById('output');
+            output.innerHTML = '<p>Checking localStorage messages...</p>';
+            
+            try {
+                // Get all localStorage keys
+                const keys = Object.keys(localStorage);
+                console.log('All localStorage keys:', keys);
+                
+                // Look for message keys
+                const messageKeys = keys.filter(key => key.startsWith('messages_'));
+                console.log('Message keys found:', messageKeys);
+                
+                let html = `<p>Found ${messageKeys.length} message keys: ${messageKeys.join(', ')}</p>`;
+                
+                messageKeys.forEach(key => {
+                    html += `<h3>${key}</h3>`;
+                    try {
+                        const messages = JSON.parse(localStorage.getItem(key) || '[]');
+                        html += `<p>Found ${messages.length} messages</p>`;
+                        
+                        messages.forEach((message, index) => {
+                            html += `<div style="border: 1px solid #ccc; margin: 10px; padding: 10px;">`;
+                            html += `<h4>Message ${index + 1}: ${message.title}</h4>`;
+                            html += `<p><strong>Types:</strong> ${JSON.stringify(message.types)}</p>`;
+                            html += `<p><strong>Status:</strong> ${message.status}</p>`;
+                            
+                            if (message.cipherBlobUrl) {
+                                html += `<p><strong>Video URL (cipherBlobUrl):</strong> ${message.cipherBlobUrl.substring(0, 100)}...</p>`;
+                                html += `<p><strong>Video URL type:</strong> ${typeof message.cipherBlobUrl}</p>`;
+                                html += `<p><strong>Video URL length:</strong> ${message.cipherBlobUrl.length}</p>`;
+                                html += `<p><strong>Is data URL:</strong> ${message.cipherBlobUrl.startsWith('data:')}</p>`;
+                                html += `<p><strong>Is HTTP URL:</strong> ${message.cipherBlobUrl.startsWith('http')}</p>`;
+                            }
+                            
+                            if (message.videoRecording) {
+                                html += `<p><strong>Video Recording:</strong> ${message.videoRecording.substring(0, 100)}...</p>`;
+                                html += `<p><strong>Video Recording type:</strong> ${typeof message.videoRecording}</p>`;
+                                html += `<p><strong>Video Recording length:</strong> ${message.videoRecording.length}</p>`;
+                                html += `<p><strong>Is data URL:</strong> ${message.videoRecording.startsWith('data:')}</p>`;
+                                html += `<p><strong>Is HTTP URL:</strong> ${message.videoRecording.startsWith('http')}</p>`;
+                            }
+                            
+                            if (message.audioRecording) {
+                                html += `<p><strong>Audio Recording:</strong> ${message.audioRecording.substring(0, 100)}...</p>`;
+                                html += `<p><strong>Audio Recording type:</strong> ${typeof message.audioRecording}</p>`;
+                                html += `<p><strong>Audio Recording length:</strong> ${message.audioRecording.length}</p>`;
+                                html += `<p><strong>Is data URL:</strong> ${message.audioRecording.startsWith('data:')}</p>`;
+                                html += `<p><strong>Is HTTP URL:</strong> ${message.audioRecording.startsWith('http')}</p>`;
+                            }
+                            
+                            html += `</div>`;
+                        });
+                    } catch (error) {
+                        html += `<p style="color: red;">Error parsing ${key}: ${error.message}</p>`;
+                    }
+                });
+                
+                output.innerHTML = html;
+                
+            } catch (error) {
+                output.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+        
+        // Run the check when page loads
+        checkLocalStorageMessages();
+    </script>
+</body>
+</html>
+
