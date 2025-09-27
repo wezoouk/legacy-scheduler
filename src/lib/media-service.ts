@@ -85,6 +85,61 @@ export class MediaService {
   }
 
   /**
+   * List files in a bucket/prefix
+   */
+  static async listFiles(prefix: string = 'uploads', bucket: string = 'media') {
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase not configured');
+    }
+    const { data, error } = await supabase.storage.from(bucket).list(prefix, {
+      limit: 100,
+      sortBy: { column: 'updated_at', order: 'desc' }
+    } as any);
+    if (error) throw error;
+    return (data || []).map((f: any) => ({
+      name: f.name,
+      metadata: f.metadata,
+      path: `${prefix}/${f.name}`,
+      created_at: (f as any).created_at,
+      updated_at: (f as any).updated_at
+    }));
+  }
+
+  /**
+   * Get public URL for a file
+   */
+  static getPublicUrl(path: string, bucket: string = 'media'): string {
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase not configured');
+    }
+    const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+    return data.publicUrl;
+  }
+
+  /**
+   * Delete via edge function (service role)
+   */
+  static async deleteViaFunction(path: string, bucket: string = 'media') {
+    const base = import.meta.env.VITE_SUPABASE_URL;
+    const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    if (!base) throw new Error('Missing VITE_SUPABASE_URL');
+    const res = await fetch(`${base}/functions/v1/delete-media`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(anon ? { 'Authorization': `Bearer ${anon}` } : {})
+      },
+      body: JSON.stringify({ path, bucket })
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || json?.success === false) {
+      const errMsg = json?.error || `Delete failed: ${res.status}`;
+      throw new Error(errMsg);
+    }
+    return json;
+  }
+
+  /**
    * Delete a file from Supabase Storage
    */
   static async deleteFile(filePath: string, bucket: string = 'media'): Promise<void> {

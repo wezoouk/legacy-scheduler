@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Calendar, User, Send, Clock, Shield, CheckCircle, AlertCircle, Trash2, Edit, Video, Square } from 'lucide-react';
+import { Play, Calendar, User, Send, Clock, Shield, CheckCircle, AlertCircle, Trash2, Edit, Video, Square, ArrowRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { useRecipients } from '@/lib/use-recipients';
 import { VideoPreviewDialog } from './video-preview-dialog';
 import { format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
 import { MediaService } from '@/lib/media-service';
+import { Link } from 'react-router-dom';
 
 interface VideoGalleryProps {
   className?: string;
@@ -45,25 +46,37 @@ export function VideoGallery({ className }: VideoGalleryProps) {
       message.types?.includes('VIDEO') || message.type === 'VIDEO'
     );
     setVideoMessages(videos);
-
-    // Load gallery videos from localStorage
-    const savedGalleryVideos = localStorage.getItem('gallery-videos');
-    if (savedGalleryVideos) {
-      try {
-        const parsed = JSON.parse(savedGalleryVideos);
-        setPlaceholderVideos(parsed);
-      } catch (error) {
-        console.error('Error loading gallery videos:', error);
-      }
-    }
   }, [messages]);
 
-  // Save gallery videos to localStorage when they change
+  // Load latest 4 videos from storage
   useEffect(() => {
-    if (placeholderVideos.length > 0) {
-      localStorage.setItem('gallery-videos', JSON.stringify(placeholderVideos));
-    }
-  }, [placeholderVideos]);
+    const loadLatest = async () => {
+      try {
+        const lists = await Promise.all([
+          MediaService.listFiles('uploads').catch(() => []),
+          MediaService.listFiles('recordings').catch(() => []),
+        ]);
+        const all = (lists.flat() as any[]);
+        const vids = all.filter(f => /\.(mp4|webm|mov|m4v|avi|mkv)$/i.test(f.name));
+        vids.sort((a: any, b: any) => {
+          const ad = (a.updated_at || a.created_at || '');
+          const bd = (b.updated_at || b.created_at || '');
+          return bd.localeCompare(ad);
+        });
+        const latest = vids.slice(0, 4).map((f: any) => ({
+          id: `media-${f.path}`,
+          title: f.name,
+          cipherBlobUrl: MediaService.getPublicUrl(f.path),
+          createdAt: (f.updated_at || f.created_at || new Date().toISOString()),
+          isGalleryItem: true,
+        }));
+        setPlaceholderVideos(latest);
+      } catch (e) {
+        console.error('Failed to load latest videos:', e);
+      }
+    };
+    loadLatest();
+  }, []);
 
   const getDeliveryStatus = (message: any) => {
     if (message.status === 'SENT') {
@@ -468,7 +481,7 @@ export function VideoGallery({ className }: VideoGalleryProps) {
           if (savedVideo) {
             // Show saved video
             return (
-              <div key={`placeholder-${index}`} className="space-y-3 min-w-[200px] w-[200px] shrink-0 snap-start">
+              <div key={`placeholder-${index}`} className="space-y-3 min-w-[160px] w-[160px] shrink-0 snap-start">
                 <Card 
                   className="aspect-video overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group"
                   onClick={() => {
@@ -489,8 +502,8 @@ export function VideoGallery({ className }: VideoGalleryProps) {
                       />
                       {/* YouTube-style play button overlay */}
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-lg hover:bg-red-700 transition-colors">
-                          <Play className="w-8 h-8 text-white ml-1" fill="currentColor" />
+                      <div className="w-12 h-12 bg-red-600 rounded-full flex items-center justify-center shadow-lg hover:bg-red-700 transition-colors">
+                        <Play className="w-6 h-6 text-white ml-1" fill="currentColor" />
                         </div>
                       </div>
                       {/* YouTube-style duration badge (placeholder) */}
@@ -566,12 +579,12 @@ export function VideoGallery({ className }: VideoGalleryProps) {
           } else {
             // Show empty placeholder
             return (
-              <div key={`placeholder-${index}`} className="space-y-3 min-w-[200px] w-[200px] shrink-0 snap-start">
+              <div key={`placeholder-${index}`} className="space-y-3 min-w-[160px] w-[160px] shrink-0 snap-start">
                 <Card className="aspect-video bg-muted/50 border-dashed border-muted-foreground/30">
                   <CardContent className="flex items-center justify-center h-full p-2">
                     <div className="text-center text-muted-foreground">
-                      <div className="w-8 h-8 mx-auto mb-2 bg-muted rounded flex items-center justify-center">
-                        <Play className="w-4 h-4" />
+                      <div className="w-7 h-7 mx-auto mb-2 bg-muted rounded flex items-center justify-center">
+                        <Play className="w-3.5 h-3.5" />
                       </div>
                       <span className="text-xs">Empty</span>
                     </div>
@@ -591,6 +604,26 @@ export function VideoGallery({ className }: VideoGalleryProps) {
             );
           }
         })}
+
+        {/* Link tile to Media Library */}
+        <div className="space-y-3 min-w-[160px] w-[160px] shrink-0 snap-start">
+          <Link to="/dashboard/media">
+            <Card className="aspect-video overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group">
+              <CardContent className="p-0 h-full relative">
+                <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
+                  <div className="flex items-center gap-2 text-white">
+                    <ArrowRight className="w-5 h-5" />
+                    <span className="text-xs font-medium">Open Media Library</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+          <div className="space-y-1">
+            <h3 className="font-medium text-sm text-foreground truncate">See all media</h3>
+            <p className="text-xs text-muted-foreground truncate">Browse and manage files</p>
+          </div>
+        </div>
 
         {/* Existing video messages (hidden to avoid clutter) */}
         {showExistingMessages && videoMessages.map((message) => {

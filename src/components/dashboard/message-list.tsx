@@ -271,15 +271,17 @@ export function MessageList() {
     <>
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold">Messages ({messages.length})</h2>
-        <Button 
-          variant="outline" 
-          onClick={refreshMessages} 
-          disabled={isLoading}
-          className="flex items-center gap-2"
-        >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            onClick={refreshMessages} 
+            disabled={isLoading}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {messages.map((message) => {

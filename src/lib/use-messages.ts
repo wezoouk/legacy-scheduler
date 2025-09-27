@@ -5,6 +5,7 @@ import { useRecipients } from './use-recipients';
 import { Mail, Video, Mic, FileText } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { onceWarn } from './onceWarn';
+ 
 
 export interface Message {
   id: string;
