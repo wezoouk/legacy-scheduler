@@ -5,6 +5,8 @@ import { ThemeProvider } from 'next-themes';
 import { Navbar } from '@/components/layout/navbar';
 import { SignInPage } from '@/pages/auth/sign-in';
 import { SignUpPage } from '@/pages/auth/sign-up';
+import { ResetPasswordPage } from '@/pages/auth/reset-password';
+import { UpdatePasswordPage } from '@/pages/auth/update-password';
 import { Dashboard } from '@/pages/dashboard/dashboard';
 import { LandingPage } from '@/pages/landing-page';
 import { AdminLayout } from '@/components/admin/admin-layout';
@@ -16,6 +18,8 @@ import { SiteCustomization } from '@/pages/admin/site-customization';
 import { AdminProfile } from '@/pages/admin/admin-profile';
 import { ProfilePage } from '@/pages/dashboard/profile';
 import { StorageNotification } from '@/components/ui/storage-notification';
+import { MediaViewerPage } from '@/pages/media-viewer';
+import { MediaLibraryPage } from '@/pages/dashboard/media-library';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -104,6 +108,22 @@ function AppRoutes() {
           }
         />
         <Route
+          path="/auth/reset-password"
+          element={
+            <PublicRoute>
+              <ResetPasswordPage />
+            </PublicRoute>
+          }
+        />
+        <Route
+          path="/auth/update-password"
+          element={
+            <PublicRoute>
+              <UpdatePasswordPage />
+            </PublicRoute>
+          }
+        />
+        <Route
           path="/dashboard"
           element={
             <ProtectedRoute>
@@ -111,6 +131,15 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/dashboard/media"
+          element={
+            <ProtectedRoute>
+              <MediaLibraryPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/view" element={<MediaViewerPage />} />
         <Route
           path="/dashboard/profile"
           element={

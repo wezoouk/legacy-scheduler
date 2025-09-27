@@ -40,33 +40,6 @@ export function SignInPage() {
     }
   };
 
-  const fillDemoCredentials = async () => {
-    // Fill the form fields with demo credentials
-    const emailInput = document.getElementById('email') as HTMLInputElement;
-    const passwordInput = document.getElementById('password') as HTMLInputElement;
-    if (emailInput) emailInput.value = 'demo@legacyscheduler.com';
-    if (passwordInput) passwordInput.value = 'demo123456';
-  };
-
-  const loginAsAdmin = async () => {
-    try {
-      setError("");
-      await login('davwez@gmail.com', 'admin123456');
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to login as admin";
-      setError(errorMessage);
-    }
-  };
-
-  const loginAsDemo = async () => {
-    try {
-      setError("");
-      await login('demo@legacyscheduler.com', 'demo123456');
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to login as demo user";
-      setError(errorMessage);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
@@ -137,57 +110,10 @@ export function SignInPage() {
             </Link>
           </div>
 
-          {/* Demo Helper */}
-          <div className="mt-4 pt-4 border-t">
-            <div className="space-y-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={loginAsDemo}
-                className="w-full text-xs"
-                disabled={isLoading || isSubmitting}
-              >
-                {(isLoading || isSubmitting) && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
-                Login as Demo User
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={loginAsAdmin}
-                className="w-full text-xs bg-purple-50 hover:bg-purple-100 text-purple-700"
-                disabled={isLoading || isSubmitting}
-              >
-                {(isLoading || isSubmitting) && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
-                Login as Admin (davwez@gmail.com)
-              </Button>
-            </div>
-          </div>
-
-          {/* Manual Demo Helper */}
-          <div className="mt-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                const emailInput = document.getElementById('email') as HTMLInputElement;
-                const passwordInput = document.getElementById('password') as HTMLInputElement;
-                if (emailInput) emailInput.value = 'demo@legacyscheduler.com';
-                if (passwordInput) passwordInput.value = 'demo123456';
-              }}
-              className="w-full text-xs"
-            >
-              Fill Demo Credentials (Manual)
-            </Button>
-          </div>
-
-          {/* Local Mode Notice */}
-          <div className="mt-4 pt-4 border-t text-center">
-            <p className="text-xs text-muted-foreground">
-              Running in local mode - data stored in browser
-            </p>
+          <div className="mt-4 text-center text-sm">
+            <Link to="/auth/reset-password" className="text-primary hover:underline">
+              Forgot your password?
+            </Link>
           </div>
         </CardContent>
       </Card>

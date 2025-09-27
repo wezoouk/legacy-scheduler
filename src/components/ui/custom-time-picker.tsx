@@ -8,6 +8,8 @@ export interface CustomTimePickerProps {
   disabled?: boolean
   className?: string
   placeholder?: string
+  // When true, renders a 24-hour clock (00-23). Defaults to true.
+  use24Hour?: boolean
 }
 
 function CustomTimePicker({
@@ -16,23 +18,31 @@ function CustomTimePicker({
   disabled = false,
   className,
   placeholder = "Select time",
+  use24Hour = true,
   ...props
 }: CustomTimePickerProps) {
   const [isOpen, setIsOpen] = React.useState(false)
+  // 12-hour mode state
   const [hours, setHours] = React.useState(12)
   const [minutes, setMinutes] = React.useState(0)
   const [period, setPeriod] = React.useState<"AM" | "PM">("PM")
+  // 24-hour mode state
+  const [hours24, setHours24] = React.useState(0)
 
   // Parse the value when it changes
   React.useEffect(() => {
     if (value) {
       const [h, m] = value.split(':').map(Number)
-      const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-      setHours(hour12)
       setMinutes(m)
-      setPeriod(h >= 12 ? "PM" : "AM")
+      if (use24Hour) {
+        setHours24((Number.isFinite(h) ? h : 0) as number)
+      } else {
+        const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+        setHours(hour12)
+        setPeriod(h >= 12 ? "PM" : "AM")
+      }
     }
-  }, [value])
+  }, [value, use24Hour])
 
   const formatTime = (h: number, m: number, p: string) => {
     const hour24 = p === "AM" ? (h === 12 ? 0 : h) : (h === 12 ? 12 : h + 12)
@@ -45,9 +55,15 @@ function CustomTimePicker({
   }
 
   const adjustHours = (delta: number) => {
-    const newHours = ((hours - 1 + delta) % 12) + 1
-    setHours(newHours)
-    handleTimeChange(newHours, minutes, period)
+    if (use24Hour) {
+      const newH = (hours24 + delta + 24) % 24
+      setHours24(newH)
+      onChange?.(`${newH.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`)
+    } else {
+      const newHours = ((hours - 1 + delta) % 12) + 1
+      setHours(newHours)
+      handleTimeChange(newHours, minutes, period)
+    }
   }
 
   const adjustMinutes = (delta: number) => {
@@ -57,14 +73,17 @@ function CustomTimePicker({
   }
 
   const togglePeriod = () => {
+    if (use24Hour) return
     const newPeriod = period === "AM" ? "PM" : "AM"
     setPeriod(newPeriod)
     handleTimeChange(hours, minutes, newPeriod)
   }
 
-  const displayValue = value ? 
-    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${period}` : 
-    placeholder
+  const displayValue = value
+    ? (use24Hour
+        ? `${hours24.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+        : `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${period}`)
+    : placeholder
 
   return (
     <div className="relative">
@@ -100,7 +119,7 @@ function CustomTimePicker({
                 <ChevronUp className="h-4 w-4" />
               </button>
               <div className="flex h-10 w-12 items-center justify-center rounded-md border border-gray-600 bg-gray-900 text-white font-mono text-lg">
-                {hours.toString().padStart(2, '0')}
+                {(use24Hour ? hours24 : hours).toString().padStart(2, '0')}
               </div>
               <button
                 type="button"
@@ -135,18 +154,20 @@ function CustomTimePicker({
               </button>
             </div>
 
-            {/* AM/PM */}
-            <div className="flex flex-col items-center space-y-2">
-              <div className="h-8"></div>
-              <button
-                type="button"
-                onClick={togglePeriod}
-                className="flex h-10 w-12 items-center justify-center rounded-md border border-gray-600 bg-blue-600 text-white hover:bg-blue-700 transition-colors font-semibold"
-              >
-                {period}
-              </button>
-              <div className="h-8"></div>
-            </div>
+            {/* AM/PM - hidden in 24-hour mode */}
+            {!use24Hour && (
+              <div className="flex flex-col items-center space-y-2">
+                <div className="h-8"></div>
+                <button
+                  type="button"
+                  onClick={togglePeriod}
+                  className="flex h-10 w-12 items-center justify-center rounded-md border border-gray-600 bg-blue-600 text-white hover:bg-blue-700 transition-colors font-semibold"
+                >
+                  {period}
+                </button>
+                <div className="h-8"></div>
+              </div>
+            )}
           </div>
 
           <div className="mt-4 flex justify-between">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Volume2, Calendar, User, Send, Clock, Shield, CheckCircle, AlertCircle, Trash2, Edit, Mic, Square } from 'lucide-react';
+import { Volume2, Calendar, User, Send, Clock, Shield, CheckCircle, AlertCircle, Trash2, Edit, Mic, Square, Folder, File as FileIcon, Upload } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,6 +8,7 @@ import { useRecipients } from '@/lib/use-recipients';
 import { AudioPreviewDialog } from './audio-preview-dialog';
 import { format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
 import { MediaService } from '@/lib/media-service';
+import { Link } from 'react-router-dom';
 
 interface AudioGalleryProps {
   className?: string;
@@ -32,6 +33,8 @@ export function AudioGallery({ className }: AudioGalleryProps) {
   const [newAudioName, setNewAudioName] = useState('');
   
   const audioRef = useRef<HTMLAudioElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [latestFiles, setLatestFiles] = useState<Array<{ name: string; path: string; url: string }>>([]);
 
   useEffect(() => {
     // Include messages that contain audio content or are marked VOICE
@@ -54,12 +57,90 @@ export function AudioGallery({ className }: AudioGalleryProps) {
     }
   }, [messages]);
 
-  // Save gallery audios to localStorage when they change
+  // Load latest 4 audios from storage
   useEffect(() => {
-    if (placeholderAudios.length > 0) {
-      localStorage.setItem('gallery-audios', JSON.stringify(placeholderAudios));
+    const loadLatest = async () => {
+      try {
+        const lists = await Promise.all([
+          MediaService.listFiles('uploads').catch(() => []),
+          MediaService.listFiles('audio').catch(() => []),
+          MediaService.listFiles('voice').catch(() => []),
+          MediaService.listFiles('recordings').catch(() => []),
+        ]);
+        const all = (lists.flat() as any[]);
+        const auds = all.filter(f => /\.(mp3|wav|ogg|m4a|aac|webm)$/i.test(f.name));
+        auds.sort((a: any, b: any) => {
+          const ad = (a.updated_at || a.created_at || '');
+          const bd = (b.updated_at || b.created_at || '');
+          return bd.localeCompare(ad);
+        });
+        const latest = auds.slice(0, 4).map((f: any) => ({
+          id: `media-${f.path}`,
+          title: f.name,
+          cipherBlobUrl: MediaService.getPublicUrl(f.path),
+          createdAt: (f.updated_at || f.created_at || new Date().toISOString()),
+          isGalleryItem: true,
+        }));
+        setPlaceholderAudios(latest);
+      } catch (e) {
+        console.error('Failed to load latest audios:', e);
+      }
+    };
+    loadLatest();
+  }, []);
+
+  // Load latest image/other files for Files area
+  useEffect(() => {
+    const loadFiles = async () => {
+      try {
+        const list = await MediaService.listFiles('uploads').catch(() => []);
+        const filtered = (list as any[]).filter((f: any) => {
+          const n = f.name.toLowerCase();
+          const isAudio = /\.(mp3|wav|ogg|m4a|aac|webm)$/.test(n);
+          const isVideo = /\.(mp4|webm|mov|m4v|avi|mkv)$/.test(n);
+          return !isAudio && !isVideo;
+        });
+        filtered.sort((a: any, b: any) => {
+          const ad = (a.updated_at || a.created_at || '');
+          const bd = (b.updated_at || b.created_at || '');
+          return bd.localeCompare(ad);
+        });
+        setLatestFiles(filtered.slice(0, 4).map((f: any) => ({
+          name: f.name,
+          path: f.path,
+          url: MediaService.getPublicUrl(f.path),
+        })));
+      } catch (e) {
+        console.error('Failed to load latest files:', e);
+      }
+    };
+    loadFiles();
+  }, []);
+
+  const onUploadFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    try {
+      for (const file of Array.from(e.target.files)) {
+        await MediaService.uploadAttachment(file);
+      }
+      // refresh both lists
+      const list = await MediaService.listFiles('uploads').catch(() => []);
+      const filtered = (list as any[]).filter((f: any) => {
+        const n = f.name.toLowerCase();
+        const isAudio = /\.(mp3|wav|ogg|m4a|aac|webm)$/.test(n);
+        const isVideo = /\.(mp4|webm|mov|m4v|avi|mkv)$/.test(n);
+        return !isAudio && !isVideo;
+      });
+      filtered.sort((a: any, b: any) => ( (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || '') ));
+      setLatestFiles(filtered.slice(0, 4).map((f: any) => ({ name: f.name, path: f.path, url: MediaService.getPublicUrl(f.path) })));
+    } catch (err) {
+      console.error('Upload files failed:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Upload failed: ${msg}`);
+    } finally {
+      if (e.target) e.target.value = '';
     }
-  }, [placeholderAudios]);
+  };
 
   const getDeliveryStatus = (message: any) => {
     if (message.status === 'SENT') {
@@ -194,7 +275,8 @@ export function AudioGallery({ className }: AudioGalleryProps) {
       alert('Audio recording saved to gallery!');
     } catch (error) {
       console.error('Error saving recording:', error);
-      alert(`Failed to save audio recording: ${error.message}\n\nPlease check your Supabase configuration.`);
+      const msg = error instanceof Error ? error.message : String(error);
+      alert(`Failed to save audio recording: ${msg}\n\nPlease check your Supabase configuration.`);
     }
   };
 
@@ -366,7 +448,7 @@ export function AudioGallery({ className }: AudioGalleryProps) {
           if (savedAudio) {
             // Show saved audio
             return (
-              <div key={`placeholder-${index}`} className="space-y-3 min-w-[200px] w-[200px] shrink-0 snap-start">
+              <div key={`placeholder-${index}`} className="space-y-3 min-w-[160px] w-[160px] shrink-0 snap-start">
                 <Card 
                   className="aspect-video overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group"
                   onClick={() => {
@@ -383,8 +465,8 @@ export function AudioGallery({ className }: AudioGalleryProps) {
                             key={i}
                             className="bg-white/30 rounded-sm transition-all duration-300 group-hover:bg-white/50"
                             style={{
-                              width: '3px',
-                              height: `${Math.random() * 40 + 20}px`,
+                              width: '2px',
+                              height: `${Math.random() * 32 + 16}px`,
                               animationDelay: `${i * 0.1}s`
                             }}
                           />
@@ -466,12 +548,12 @@ export function AudioGallery({ className }: AudioGalleryProps) {
           } else {
             // Show empty placeholder
             return (
-              <div key={`placeholder-${index}`} className="space-y-3 min-w-[200px] w-[200px] shrink-0 snap-start">
+              <div key={`placeholder-${index}`} className="space-y-3 min-w-[160px] w-[160px] shrink-0 snap-start">
                 <Card className="aspect-video bg-muted/50 border-dashed border-muted-foreground/30">
                   <CardContent className="flex items-center justify-center h-full p-2">
                     <div className="text-center text-muted-foreground">
-                      <div className="w-8 h-8 mx-auto mb-2 bg-muted rounded flex items-center justify-center">
-                        <Volume2 className="w-4 h-4" />
+                      <div className="w-7 h-7 mx-auto mb-2 bg-muted rounded flex items-center justify-center">
+                        <Volume2 className="w-3.5 h-3.5" />
                       </div>
                       <span className="text-xs">Empty</span>
                     </div>
@@ -492,86 +574,105 @@ export function AudioGallery({ className }: AudioGalleryProps) {
           }
         })}
 
-        {/* Existing audio messages (hidden by default to keep grid clean) */}
-        {showExistingMessages && audioMessages.map((message) => {
-          const deliveryStatus = getDeliveryStatus(message);
-          const StatusIcon = deliveryStatus.icon;
-          
-          return (
-            <div key={message.id} className="space-y-3 min-w-[200px] w-[200px] shrink-0 snap-start">
-              <Card 
-                className="aspect-video overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group"
-                onClick={() => {
-                  console.log('Audio thumbnail clicked:', message.title);
-                  setPreviewingAudio(message);
-                }}
-              >
-                <CardContent className="p-0 h-full relative">
-                  <div className="w-full h-full bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center">
-                    {/* Audio waveform visualization */}
-                    <div className="flex items-center space-x-1">
-                      {[...Array(20)].map((_, i) => (
-                        <div
-                          key={i}
-                          className="bg-white/30 rounded-sm transition-all duration-300 group-hover:bg-white/50"
-                          style={{
-                            width: '3px',
-                            height: `${Math.random() * 40 + 20}px`,
-                            animationDelay: `${i * 0.1}s`
-                          }}
-                        />
-                      ))}
-                    </div>
+        {/* Link tile to Media Library */}
+        <div className="space-y-3 min-w-[160px] w-[160px] shrink-0 snap-start">
+          <Link to="/dashboard/media">
+            <Card className="aspect-video overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group">
+              <CardContent className="p-0 h-full relative">
+                <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
+                  <div className="flex items-center gap-2 text-white">
+                    <Folder className="w-5 h-5" />
+                    <span className="text-xs font-medium">Open Media Library</span>
                   </div>
-                  
-                  {/* Audio icon overlay */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg group-hover:shadow-white/20">
-                      <Volume2 className="w-8 h-8 text-white fill-white" />
-                    </div>
-                  </div>
-                  
-                  {/* Status badge overlay */}
-                  <div className="absolute top-2 left-2">
-                    <Badge className={`${deliveryStatus.color} text-xs px-2 py-1`}>
-                      <StatusIcon className="w-3 h-3 mr-1" />
-                      {deliveryStatus.status}
-                    </Badge>
-                  </div>
-                  
-                  {/* DMS badge overlay */}
-                  {message.scope === 'DMS' && (
-                    <div className="absolute top-2 left-20">
-                      <Badge className="bg-red-100 text-red-800 text-xs px-2 py-1">
-                        <Shield className="w-3 h-3 mr-1" />
-                        DMS
-                      </Badge>
-                    </div>
-                  )}
-                  
-                  {/* Date overlay */}
-                  <div className="absolute bottom-2 left-2 right-2 bg-gradient-to-t from-black/80 to-transparent p-2 rounded-b">
-                    <div className="flex items-center text-white text-xs">
-                      <Calendar className="w-3 h-3 mr-1" />
-                      {format(new Date(message.createdAt), 'MMM d, HH:mm')}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              
-              {/* Message details */}
-              <div className="space-y-1">
-                <h3 className="font-medium text-sm text-foreground truncate" title={message.title}>
-                  {message.title}
-                </h3>
-                <p className="text-xs text-muted-foreground truncate" title={getRecipientNames(message)}>
-                  <User className="w-3 h-3 inline mr-1" />
-                  {getRecipientNames(message)}
-                </p>
-              </div>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+          <div className="space-y-1">
+            <h3 className="font-medium text-sm text-foreground truncate">See all media</h3>
+            <p className="text-xs text-muted-foreground truncate">Browse and manage files</p>
+          </div>
+        </div>
+      </div>
+      
+      {/* Files (images/other) row */}
+      <div className="mt-8 pt-4 border-t border-gray-800 block w-full clear-both">
+        <div className="mb-2">
+          <h3 className="text-sm font-semibold text-foreground">Files</h3>
+          <p className="text-xs text-muted-foreground">Latest uploads (images and documents)</p>
+        </div>
+        <div className="flex overflow-x-auto gap-4 snap-x snap-mandatory pb-2 scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-200 dark:scrollbar-thumb-gray-600 dark:scrollbar-track-gray-800">
+          {/* Upload tile */}
+          <div className="space-y-3 min-w-[160px] w-[160px] shrink-0 snap-start">
+            <Card className="aspect-video overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group border-2 border-dashed border-green-500/50 hover:border-green-500"
+              onClick={() => fileInputRef.current?.click()}>
+              <CardContent className="p-0 h-full relative">
+                <div className="w-full h-full bg-gradient-to-br from-green-500/20 to-green-500/40 flex flex-col items-center justify-center">
+                  <Upload className="w-6 h-6 text-green-500 mb-2" />
+                  <span className="text-green-500 text-sm font-medium">Upload Files</span>
+                </div>
+                <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onUploadFiles} />
+              </CardContent>
+            </Card>
+            <div className="space-y-1">
+              <h3 className="font-medium text-sm text-foreground truncate">Upload Files</h3>
+              <p className="text-xs text-muted-foreground truncate">Click to select files</p>
             </div>
-          );
-        })}
+          </div>
+
+          {/* Latest files tiles with placeholders to 4 */}
+          {Array.from({ length: Math.max(latestFiles.length, 4) }).map((_, index) => {
+            const f = latestFiles[index];
+            if (f) {
+              const isImage = /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(f.name);
+              return (
+                <div key={`file-${index}`} className="space-y-3 min-w-[160px] w-[160px] shrink-0 snap-start">
+                  <Card className="aspect-video overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group"
+                    onClick={() => window.open(f.url, '_blank')}
+                  >
+                    <CardContent className="p-0 h-full relative">
+                      <div className="w-full h-full bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center overflow-hidden">
+                        {isImage ? (
+                          <img src={f.url} alt={f.name} className="w-full h-full object-cover opacity-90" />
+                        ) : (
+                          <div className="flex flex-col items-center text-white">
+                            <FileIcon className="w-6 h-6 mb-2" />
+                            <span className="text-[11px] px-2 truncate max-w-[140px]">{f.name}</span>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <div className="space-y-1">
+                    <h3 className="font-medium text-sm text-foreground truncate" title={f.name}>
+                      {f.name}
+                    </h3>
+                    <p className="text-xs text-muted-foreground truncate">{isImage ? 'Image' : 'File'}</p>
+                  </div>
+                </div>
+              );
+            }
+            // Empty placeholder tile matching audio style
+            return (
+              <div key={`file-ph-${index}`} className="space-y-3 min-w-[160px] w-[160px] shrink-0 snap-start">
+                <Card className="aspect-video bg-muted/50 border-dashed border-muted-foreground/30">
+                  <CardContent className="flex items-center justify-center h-full p-2">
+                    <div className="text-center text-muted-foreground">
+                      <div className="w-7 h-7 mx-auto mb-2 bg-muted rounded flex items-center justify-center">
+                        <FileIcon className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="text-xs">Empty</span>
+                    </div>
+                  </CardContent>
+                </Card>
+                <div className="space-y-1">
+                  <h3 className="font-medium text-sm text-muted-foreground truncate">File {index + 1}</h3>
+                  <p className="text-xs text-muted-foreground truncate">Ready to upload</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Audio Preview Dialog */}

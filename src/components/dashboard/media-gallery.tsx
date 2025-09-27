@@ -156,7 +156,7 @@ export function MediaGallery({ onSelectMedia, showSelectButton = false }: MediaG
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
-          Media Gallery
+          Files
           <Button onClick={loadMediaFiles} variant="outline" size="sm">
             Refresh
           </Button>
@@ -168,12 +168,12 @@ export function MediaGallery({ onSelectMedia, showSelectButton = false }: MediaG
             No media files found. Record some videos or audio to see them here.
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {mediaFiles.map((file) => {
               const mediaType = getMediaType(file.metadata.mimetype);
               return (
                 <Card key={file.id} className="relative">
-                  <CardContent className="p-4">
+                  <CardContent className="p-3">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <Badge variant="secondary">
@@ -199,15 +199,15 @@ export function MediaGallery({ onSelectMedia, showSelectButton = false }: MediaG
                         </div>
                       </div>
                       
-                      <div className="text-sm font-medium truncate" title={file.name}>
+                      <div className="text-xs font-medium truncate" title={file.name}>
                         {file.name}
                       </div>
                       
-                      <div className="text-xs text-gray-500">
+                      <div className="text-[11px] text-gray-500">
                         {formatFileSize(file.metadata.size)}
                       </div>
                       
-                      <div className="text-xs text-gray-500">
+                      <div className="text-[11px] text-gray-500">
                         {formatDate(file.updated_at)}
                       </div>
                       

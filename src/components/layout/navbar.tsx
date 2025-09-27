@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
-import { LogOut, User, Shield, Home, LayoutDashboard } from "lucide-react";
+import { LogOut, User, Shield, Home, LayoutDashboard, Film } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAdmin } from "@/lib/use-admin";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -43,6 +43,16 @@ export function Navbar() {
                   >
                     <LayoutDashboard className="w-4 h-4" />
                     <span>Dashboard</span>
+                  </Button>
+                </Link>
+                <Link to="/dashboard/media">
+                  <Button 
+                    variant={location.pathname.startsWith("/dashboard/media") ? "default" : "ghost"} 
+                    size="sm"
+                    className="flex items-center space-x-2"
+                  >
+                    <Film className="w-4 h-4" />
+                    <span>Media</span>
                   </Button>
                 </Link>
               </div>

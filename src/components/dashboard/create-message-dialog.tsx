@@ -31,6 +31,7 @@ import { EmailTemplateSelector } from "@/components/dashboard/email-template-sel
 import { EmailPreviewDialog } from "@/components/dashboard/email-preview-dialog";
 import { DmsActivationDialog } from "@/components/dashboard/dms-activation-dialog";
 import { CreateRecipientDialog } from "@/components/dashboard/create-recipient-dialog";
+import { FileSelectionDialog } from "@/components/dashboard/file-selection-dialog";
 import { type EmailTemplate } from "@/lib/email-templates";
 import { 
   Mail, 
@@ -73,7 +74,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
   const [showDmsActivation, setShowDmsActivation] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showEmailPreview, setShowEmailPreview] = useState(false);
-  const [useRichText, setUseRichText] = useState(false);
+  const [useRichText, setUseRichText] = useState(true);
   const [isUsingTemplate, setIsUsingTemplate] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
@@ -85,6 +86,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
   const [isAudioSelectionOpen, setIsAudioSelectionOpen] = useState(false);
   const [selectedAudioUrl, setSelectedAudioUrl] = useState<string | null>(null);
   const [selectedAudioTitle, setSelectedAudioTitle] = useState<string>('');
+  const [isFileSelectionOpen, setIsFileSelectionOpen] = useState(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -275,7 +277,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
             // Upload to Supabase Storage - NO FALLBACK
             const videoResult = await MediaService.uploadVideo(recordedBlob, 'video.webm');
             videoUrl = videoResult.url;
-            content += `\n\n📹 Video Message: ${videoResult.url}`;
+          content += `\n\n📹 Video Message: <a href="${videoResult.url}" target="_blank" rel="noopener noreferrer">Open video</a>`;
             console.log('Video uploaded to Supabase Storage:', videoResult.url);
           } catch (error) {
             console.error('Failed to upload video to Supabase Storage:', error);
@@ -285,7 +287,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
           console.log('Using selected existing video:', selectedVideoUrl);
           // Use selected existing video
           videoUrl = selectedVideoUrl;
-          content += `\n\n📹 Video Message: ${selectedVideoUrl}`;
+          content += `\n\n📹 Video Message: <a href="${selectedVideoUrl}" target="_blank" rel="noopener noreferrer">Open video</a>`;
         } else {
           console.warn('VIDEO type selected but no video source found - recordedBlob:', !!recordedBlob, 'selectedVideoUrl:', selectedVideoUrl);
         }
@@ -301,7 +303,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
             // Upload to Supabase Storage - NO FALLBACK
             const audioResult = await MediaService.uploadAudio(recordedBlob, 'audio.webm');
             audioUrl = audioResult.url;
-            content += `\n\n[Voice recording attached: ${audioResult.url}]`;
+          content += `\n\n🎤 Voice recording: <a href="${audioResult.url}" target="_blank" rel="noopener noreferrer">Listen</a>`;
             console.log('Audio uploaded to Supabase Storage:', audioResult.url);
           } catch (error) {
             console.error('Failed to upload audio to Supabase Storage:', error);
@@ -311,7 +313,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
           console.log('Using selected existing audio URL:', selectedAudioUrl);
           // Use selected existing audio
           audioUrl = selectedAudioUrl;
-          content += `\n\n[Voice recording attached: ${selectedAudioUrl}]`;
+          content += `\n\n🎤 Voice recording: <a href="${selectedAudioUrl}" target="_blank" rel="noopener noreferrer">Listen</a>`;
         } else {
           console.warn('VOICE type selected but no audio source found - recordedBlob:', !!recordedBlob, 'selectedAudioUrl:', selectedAudioUrl);
         }
@@ -335,7 +337,11 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
             })
           );
           uploadedAttachmentMeta = uploads;
-          const links = uploads.map(u => `${u.name}${u.url ? ` - ${u.url}` : ''}`).join('\n');
+          const links = uploads.map(u => {
+            if (!u.url) return u.name
+            const safeName = u.name.replace(/[`]/g, '')
+            return `<a href="${u.url}" target="_blank" rel="noopener noreferrer">${safeName}</a>`
+          }).join('<br>');
           content += `\n\nAttached files (links):\n${links}`;
         } catch (e) {
           console.error('Attachment upload error:', e);
@@ -602,6 +608,10 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
             <div className="space-y-3">
               <Label>File Attachments</Label>
               <div className="border rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm text-muted-foreground">Select from Media Library</span>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setIsFileSelectionOpen(true)}>Browse Files</Button>
+                </div>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -741,11 +751,17 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
               </div>
             </div>
             
-            {useRichText && selectedTypes.includes('EMAIL') ? (
+            {useRichText ? (
               <RichTextEditor
                 value={watch('content') || ''}
                 onChange={(value) => setValue('content', value)}
-                placeholder="Compose your beautiful email message..."
+                placeholder={
+                  selectedTypes.includes('EMAIL') ? 'Compose your message...' :
+                  selectedTypes.includes('VIDEO') && selectedTypes.includes('VOICE') ? 'Add rich notes for video and voice...' :
+                  selectedTypes.includes('VIDEO') ? 'Add rich description or script for the video...' :
+                  selectedTypes.includes('VOICE') ? 'Add rich notes for the voice message...' :
+                  'Describe the files with rich text...'
+                }
                 className="min-h-[200px]"
               />
             ) : (
@@ -1008,6 +1024,16 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
             console.log('Audio selected:', { audioUrl, title });
             setSelectedAudioUrl(audioUrl);
             setSelectedAudioTitle(title);
+          }}
+        />
+
+        <FileSelectionDialog
+          open={isFileSelectionOpen}
+          onOpenChange={setIsFileSelectionOpen}
+          onSelectFile={(url, name) => {
+            const current = watch('content') || '';
+            const safe = name.replace(/[`]/g, '');
+            setValue('content', `${current}\n<a href="${url}" target="_blank" rel="noopener noreferrer">${safe}</a>`);
           }}
         />
       </DialogContent>
