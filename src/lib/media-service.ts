@@ -21,10 +21,16 @@ export class MediaService {
     }
 
     try {
-      // Generate unique filename with timestamp
+      // Generate friendly filename: use provided name base + timestamp suffix to avoid collisions
       const timestamp = Date.now();
-      const fileExtension = fileName.split('.').pop() || 'bin';
-      const uniqueFileName = `${timestamp}_${Math.random().toString(36).substr(2, 9)}.${fileExtension}`;
+      const originalExt = fileName.split('.').pop() || 'bin';
+      const baseWithoutExt = fileName.replace(/\.[^/.]+$/i, '');
+      const safeBase = baseWithoutExt
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '')
+        .slice(0, 80) || 'file';
+      const uniqueFileName = `${safeBase}-${timestamp}.${originalExt}`;
       const filePath = `uploads/${uniqueFileName}`;
 
       // Upload file to Supabase Storage

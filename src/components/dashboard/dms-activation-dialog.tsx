@@ -117,10 +117,10 @@ export function DmsActivationDialog({ open, onOpenChange, onActivate }: DmsActiv
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-blue-600" />
-            Activate Dead Man's Switch
+            Activate Guardian Angel
           </DialogTitle>
           <DialogDescription>
-            Configure your DMS settings to protect this message
+            Configure your Guardian Angel settings to protect this message
           </DialogDescription>
         </DialogHeader>
 
@@ -160,7 +160,7 @@ export function DmsActivationDialog({ open, onOpenChange, onActivate }: DmsActiv
             </div>
 
             <div className="space-y-1">
-              <Label htmlFor="durationDays" className="text-sm">DMS Duration</Label>
+              <Label htmlFor="durationDays" className="text-sm">Guardian Angel Duration</Label>
               <Input
                 id="durationDays"
                 type="number"
@@ -304,7 +304,7 @@ export function DmsActivationDialog({ open, onOpenChange, onActivate }: DmsActiv
           <div className="bg-blue-900/20 border border-blue-700/30 p-3 rounded-lg space-y-2">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-blue-300" />
-              <span className="text-sm font-medium text-blue-300">DMS Summary</span>
+              <span className="text-sm font-medium text-blue-300">Guardian Angel Summary</span>
             </div>
             <div className="text-xs text-blue-400 space-y-1">
               <p>• Check in every <Badge variant="outline" className="text-xs bg-blue-800/30 border-blue-600 text-blue-300">{frequencyDays} days</Badge></p>
@@ -319,7 +319,7 @@ export function DmsActivationDialog({ open, onOpenChange, onActivate }: DmsActiv
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmitting} className="bg-yellow-500 hover:bg-yellow-600 text-black border-yellow-500 hover:border-yellow-600">
-              {isSubmitting ? 'Activating...' : 'Activate DMS'}
+              {isSubmitting ? 'Activating...' : 'Activate Guardian Angel'}
             </Button>
           </DialogFooter>
         </form>

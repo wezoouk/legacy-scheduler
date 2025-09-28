@@ -11,16 +11,16 @@ export function Navbar() {
   const location = useLocation();
 
   return (
-    <nav className="border-b bg-background">
+    <nav className="border-b bg-background text-foreground">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center space-x-8">
             <Link 
               to={user ? "/dashboard" : "/"} 
               className="text-xl font-bold"
-              style={{ color: siteSettings.primaryColor }}
+              style={{ color: '#D4A017' }}
             >
-              {siteSettings.siteName}
+              Rembr
             </Link>
             
             {user && (

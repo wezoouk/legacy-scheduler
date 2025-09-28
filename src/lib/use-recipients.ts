@@ -96,8 +96,13 @@ export function useRecipients() {
       }
 
       const formattedRecipients = (data || []).map((recipient: any) => ({
-        ...recipient,
-        userId: recipient.userId, // Already in camelCase from database
+        id: recipient.id,
+        userId: recipient.userId,
+        name: recipient.name,
+        email: recipient.email,
+        phone: recipient.phone,
+        timezone: recipient.timezone,
+        verified: !!recipient.verified,
         createdAt: new Date(recipient.createdAt),
         updatedAt: new Date(recipient.updatedAt),
       }));

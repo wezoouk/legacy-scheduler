@@ -19,7 +19,7 @@ export function VideoGallery({ className }: VideoGalleryProps) {
   const { messages, deleteMessage, createMessage } = useMessages();
   const { recipients } = useRecipients();
   const [videoMessages, setVideoMessages] = useState<any[]>([]);
-  const showExistingMessages = true; // Show thumbnails; carousel will keep layout clean
+  const showExistingMessages = false; // Render only media-library items to avoid duplicates
   const [previewingVideo, setPreviewingVideo] = useState<any>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
@@ -39,12 +39,58 @@ export function VideoGallery({ className }: VideoGalleryProps) {
   const modalVideoRef = useRef<HTMLVideoElement>(null);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
 
+  const derivePathFromPublicUrl = (publicUrl: string): string | null => {
+    try {
+      // Supabase public URLs look like: <base>/storage/v1/object/public/<bucket>/<path>
+      const marker = '/storage/v1/object/public/';
+      const idx = publicUrl.indexOf(marker);
+      if (idx === -1) return null;
+      const after = publicUrl.substring(idx + marker.length); // <bucket>/<path>
+      const firstSlash = after.indexOf('/');
+      if (firstSlash === -1) return null;
+      const path = after.substring(firstSlash + 1); // <path>
+      return path;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleDeleteGalleryVideo = async (video: any, index: number) => {
+    try {
+      if (!confirm(`Delete "${video.title}" from media?`)) return;
+      const path = video.path || derivePathFromPublicUrl(video.cipherBlobUrl);
+      if (!path) {
+        alert('Could not determine storage path to delete.');
+        return;
+      }
+      // Prefer secure deletion via edge function
+      try {
+        await MediaService.deleteViaFunction(path, 'media');
+      } catch {
+        // Fallback to direct storage delete if function is not deployed
+        await MediaService.deleteFile(path, 'media');
+      }
+      setPlaceholderVideos(prev => prev.filter((_, i) => i !== index));
+      alert('Video deleted.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('Failed to delete gallery video:', err);
+      alert(`Failed to delete video: ${msg}`);
+    }
+  };
+
   useEffect(() => {
     // Include any message that has video content or is marked VIDEO
     const videos = messages.filter(message => 
       message.videoRecording || message.cipherBlobUrl ||
       message.types?.includes('VIDEO') || message.type === 'VIDEO'
     );
+    // Newest first by createdAt/updatedAt
+    videos.sort((a: any, b: any) => {
+      const ad = (a.updatedAt || a.createdAt || 0);
+      const bd = (b.updatedAt || b.createdAt || 0);
+      return new Date(bd).getTime() - new Date(ad).getTime();
+    });
     setVideoMessages(videos);
   }, [messages]);
 
@@ -65,10 +111,11 @@ export function VideoGallery({ className }: VideoGalleryProps) {
         });
         const latest = vids.slice(0, 4).map((f: any) => ({
           id: `media-${f.path}`,
-          title: f.name,
+        title: f.name,
           cipherBlobUrl: MediaService.getPublicUrl(f.path),
           createdAt: (f.updated_at || f.created_at || new Date().toISOString()),
           isGalleryItem: true,
+          path: f.path,
         }));
         setPlaceholderVideos(latest);
       } catch (e) {
@@ -76,6 +123,23 @@ export function VideoGallery({ className }: VideoGalleryProps) {
       }
     };
     loadLatest();
+
+    // When a new media is uploaded elsewhere, prepend it if it's a video
+    const onUploaded = (e: any) => {
+      const d = e?.detail;
+      if (!d || d.kind !== 'video' || !/\.(mp4|webm|mov|m4v|avi|mkv)$/i.test(d.path || '')) return;
+      const item = {
+        id: `media-${d.path}`,
+        title: d.title || d.path?.split('/')?.pop() || 'Video',
+        cipherBlobUrl: d.url,
+        createdAt: d.createdAt || new Date().toISOString(),
+        isGalleryItem: true,
+        path: d.path,
+      } as any;
+      setPlaceholderVideos(prev => [item, ...prev].slice(0, Math.max(prev.length, 4)));
+    };
+    window.addEventListener('mediaUploaded', onUploaded as any);
+    return () => window.removeEventListener('mediaUploaded', onUploaded as any);
   }, []);
 
   const getDeliveryStatus = (message: any) => {
@@ -142,17 +206,17 @@ export function VideoGallery({ className }: VideoGalleryProps) {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      // Prefer existing preview stream from the modal; otherwise request a new one
+      let stream = previewStream;
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        setPreviewStream(stream);
+      }
+
+      if (!stream) return;
+
+      // Use the preview stream for recording
       setVideoStream(stream);
-      
-      if (cardVideoRef.current) {
-        (cardVideoRef.current as any).srcObject = stream;
-        (cardVideoRef.current as any).play?.().catch(() => {});
-      }
-      if (modalVideoRef.current) {
-        (modalVideoRef.current as any).srcObject = stream;
-        (modalVideoRef.current as any).play?.().catch(() => {});
-      }
 
       const recorder = new MediaRecorder(stream);
       const chunks: BlobPart[] = [];
@@ -163,8 +227,11 @@ export function VideoGallery({ className }: VideoGalleryProps) {
         setRecordedBlob(blob);
         const url = URL.createObjectURL(blob);
         setRecordingUrl(url);
-        stream.getTracks().forEach(track => track.stop());
-        setVideoStream(null);
+        // Do not stop tracks here; allow user to preview result or start new recording after closing
+        if (videoStream) {
+          videoStream.getTracks().forEach(track => track.stop());
+          setVideoStream(null);
+        }
       };
 
       recorder.start();
@@ -193,6 +260,24 @@ export function VideoGallery({ className }: VideoGalleryProps) {
   const openPreviewModal = () => setIsPreviewModalOpen(true);
   const closePreviewModal = () => setIsPreviewModalOpen(false);
 
+  const startPreviewStream = async () => {
+    try {
+      if (!previewStream) {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        setPreviewStream(stream);
+        if (modalVideoRef.current) {
+          (modalVideoRef.current as any).srcObject = stream;
+          (modalVideoRef.current as any).play?.().catch(() => {});
+        }
+      } else if (modalVideoRef.current) {
+        (modalVideoRef.current as any).srcObject = previewStream;
+        (modalVideoRef.current as any).play?.().catch(() => {});
+      }
+    } catch (e) {
+      console.error('Failed to start preview stream:', e);
+    }
+  };
+
   // Keep modal video bound to current stream whenever modal opens or stream changes
   useEffect(() => {
     const bind = async () => {
@@ -208,23 +293,17 @@ export function VideoGallery({ className }: VideoGalleryProps) {
         return;
       }
 
-      // If we already have the recording stream, reuse it
-      if (videoStream && modalVideoRef.current) {
-        try {
-          (modalVideoRef.current as any).srcObject = videoStream;
-          (modalVideoRef.current as any).play?.().catch(() => {});
-          return;
-        } catch (e) {
-          console.error('Failed to bind recording stream to modal video:', e);
-        }
-      }
-
-      // Otherwise request a lightweight preview stream just for the modal
+      // Request a lightweight preview stream just for the modal (do not start recording yet)
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        setPreviewStream(stream);
-        if (modalVideoRef.current) {
-          (modalVideoRef.current as any).srcObject = stream;
+        if (!previewStream) {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          setPreviewStream(stream);
+          if (modalVideoRef.current) {
+            (modalVideoRef.current as any).srcObject = stream;
+            (modalVideoRef.current as any).play?.().catch(() => {});
+          }
+        } else if (modalVideoRef.current) {
+          (modalVideoRef.current as any).srcObject = previewStream;
           (modalVideoRef.current as any).play?.().catch(() => {});
         }
       } catch (e) {
@@ -240,6 +319,32 @@ export function VideoGallery({ className }: VideoGalleryProps) {
       }
     };
   }, [isPreviewModalOpen, videoStream]);
+
+  // After a recording finishes, load the recorded clip into the modal player, rewind, and pause
+  useEffect(() => {
+    if (!isPreviewModalOpen) return;
+    if (!recordingUrl || !modalVideoRef.current) return;
+    try {
+      (modalVideoRef.current as any).srcObject = null;
+      (modalVideoRef.current as any).src = recordingUrl;
+      const el = modalVideoRef.current as HTMLVideoElement;
+      const onLoaded = () => {
+        try {
+          el.currentTime = 0;
+          el.pause();
+        } catch {}
+      };
+      el.addEventListener('loadedmetadata', onLoaded, { once: true } as any);
+    } catch (e) {
+      console.error('Failed to bind recorded video to modal:', e);
+    }
+  }, [recordingUrl, isPreviewModalOpen]);
+
+  const retakeRecording = async () => {
+    setRecordedBlob(null);
+    setRecordingUrl('');
+    await startPreviewStream();
+  };
 
   const getUsageDetailForUrl = (url: string) => {
     if (!url) return '';
@@ -264,12 +369,13 @@ export function VideoGallery({ className }: VideoGalleryProps) {
     setIsNamingDialogOpen(true);
   };
 
-  const saveRecordingWithName = async (name: string) => {
-    if (!pendingRecording) return;
+  const saveRecordingWithName = async (name: string, blobOverride?: Blob) => {
+    const blobToUse = blobOverride || pendingRecording;
+    if (!blobToUse) return;
 
     try {
       // Upload to Supabase Storage - NO localStorage fallback
-      const videoResult = await MediaService.uploadVideo(pendingRecording, 'video.webm');
+      const videoResult = await MediaService.uploadVideo(blobToUse, 'video.webm');
       console.log('Video uploaded to Supabase Storage:', videoResult.url);
 
       // Create a video object for the gallery (not a message)
@@ -283,11 +389,12 @@ export function VideoGallery({ className }: VideoGalleryProps) {
         cipherBlobUrl: videoResult.url, // Use Supabase Storage URL
         thumbnailUrl: videoResult.url,
         createdAt: new Date().toISOString(),
-        isGalleryItem: true // Mark as gallery item, not a message
+        isGalleryItem: true, // Mark as gallery item, not a message
+        path: videoResult.path,
       };
 
-      // Add to placeholder videos array (these show in the empty boxes)
-      setPlaceholderVideos(prev => [...prev, newVideo]);
+      // Add to placeholder videos at the FRONT so latest appears first
+      setPlaceholderVideos(prev => [newVideo, ...prev].slice(0, Math.max(prev.length, 4)));
 
       // Clear the recording after saving
       setRecordedBlob(null);
@@ -362,7 +469,7 @@ export function VideoGallery({ className }: VideoGalleryProps) {
         <div className="space-y-3 min-w-[200px] w-[200px] shrink-0 snap-start">
           <Card 
             className="aspect-video overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group border-2 border-dashed border-primary/50 hover:border-primary"
-            onClick={() => { if (!isRecording && !recordedBlob) startRecording(); }}
+            onClick={() => { openPreviewModal(); }}
           >
             <CardContent className="p-0 h-full relative">
               {/* Modal preview container handled below */}
@@ -393,23 +500,9 @@ export function VideoGallery({ className }: VideoGalleryProps) {
               )}
               
               {/* Action overlay - click to start/stop */}
-              <div
-                className={`absolute inset-0 flex items-center justify-center ${isRecording || videoStream ? 'cursor-pointer' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (isRecording || videoStream) {
-                    stopRecording();
-                  } else if (!recordedBlob) {
-                    startRecording();
-                  }
-                }}
-              >
+              <div className="absolute inset-0 flex items-center justify-center">
                 <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg group-hover:shadow-white/20">
-                  {isRecording || videoStream ? (
-                    <Square className="w-8 h-8 text-white fill-white" />
-                  ) : (
-                    <Video className="w-8 h-8 text-white fill-white" />
-                  )}
+                  <Video className="w-8 h-8 text-white fill-white" />
                 </div>
               </div>
               
@@ -469,7 +562,7 @@ export function VideoGallery({ className }: VideoGalleryProps) {
               {isRecording ? 'Recording...' : recordedBlob ? 'New Recording' : 'Record New Video'}
             </h3>
             <p className="text-xs text-muted-foreground truncate">
-              {isRecording ? 'Click stop to finish' : recordedBlob ? 'Click save to create message' : 'Click to start recording'}
+              {isRecording ? 'Recording in progress' : recordedBlob ? 'Click save to create message' : 'Click to open preview'}
             </p>
           </div>
         </div>
@@ -538,11 +631,9 @@ export function VideoGallery({ className }: VideoGalleryProps) {
                         size="sm"
                         variant="outline"
                         className="h-6 w-6 p-0 bg-red-500/90 hover:bg-red-600 text-white"
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           e.stopPropagation();
-                          if (confirm(`Are you sure you want to delete "${savedVideo.title}"?`)) {
-                            setPlaceholderVideos(prev => prev.filter((_, i) => i !== index));
-                          }
+                          await handleDeleteGalleryVideo(savedVideo, index);
                         }}
                         title="Delete video"
                       >
@@ -605,27 +696,7 @@ export function VideoGallery({ className }: VideoGalleryProps) {
           }
         })}
 
-        {/* Link tile to Media Library */}
-        <div className="space-y-3 min-w-[160px] w-[160px] shrink-0 snap-start">
-          <Link to="/dashboard/media">
-            <Card className="aspect-video overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group">
-              <CardContent className="p-0 h-full relative">
-                <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
-                  <div className="flex items-center gap-2 text-white">
-                    <ArrowRight className="w-5 h-5" />
-                    <span className="text-xs font-medium">Open Media Library</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
-          <div className="space-y-1">
-            <h3 className="font-medium text-sm text-foreground truncate">See all media</h3>
-            <p className="text-xs text-muted-foreground truncate">Browse and manage files</p>
-          </div>
-        </div>
-
-        {/* Existing video messages (hidden to avoid clutter) */}
+        {/* Existing video messages (before the Open Media tile so nothing appears after it) */}
         {showExistingMessages && videoMessages.map((message) => {
           const videoUrl = message.cipherBlobUrl || message.videoRecording;
           const deliveryStatus = getDeliveryStatus(message);
@@ -677,12 +748,12 @@ export function VideoGallery({ className }: VideoGalleryProps) {
                     </Badge>
                   </div>
                   
-                  {/* DMS badge overlay */}
+                  {/* Guardian Angel badge overlay */}
                   {message.scope === 'DMS' && (
                     <div className="absolute top-2 left-20">
                       <Badge className="bg-red-100 text-red-800 text-xs px-2 py-1">
                         <Shield className="w-3 h-3 mr-1" />
-                        DMS
+                        Guardian Angel
                       </Badge>
                     </div>
                   )}
@@ -725,7 +796,7 @@ export function VideoGallery({ className }: VideoGalleryProps) {
                        format(new Date(message.createdAt), 'MMM d, HH:mm')}
                     </div>
                     
-                    {/* DMS Countdown */}
+                    {/* Guardian Angel Countdown */}
                     {(() => {
                       const dmsCountdown = getDMSCountdown(message);
                       console.log('DMS check for message:', message.title, 'scope:', message.scope, 'dmsConfig:', message.dmsConfig, 'countdown:', dmsCountdown);
@@ -761,6 +832,26 @@ export function VideoGallery({ className }: VideoGalleryProps) {
             </div>
           );
         })}
+
+        {/* Link tile to Media Library - last item so nothing appears after it */}
+        <div className="space-y-3 min-w-[160px] w-[160px] shrink-0 snap-start">
+          <Link to="/dashboard/media">
+            <Card className="aspect-video overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group">
+              <CardContent className="p-0 h-full relative">
+                <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
+                  <div className="flex items-center gap-2 text-white">
+                    <ArrowRight className="w-5 h-5" />
+                    <span className="text-xs font-medium">Open Media Library</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+          <div className="space-y-1">
+            <h3 className="font-medium text-sm text-foreground truncate">See all media</h3>
+            <p className="text-xs text-muted-foreground truncate">Browse and manage files</p>
+          </div>
+        </div>
       </div>
 
       {/* Video Preview Dialog */}
@@ -778,7 +869,7 @@ export function VideoGallery({ className }: VideoGalleryProps) {
           <DialogHeader>
             <DialogTitle>Recording Preview</DialogTitle>
           </DialogHeader>
-          <div className="w-full h-[70vh] bg-black flex items-center justify-center">
+          <div className="w-full h-[70vh] bg-black flex items-center justify-center relative">
             <video
               ref={modalVideoRef}
               className="w-full h-full object-contain"
@@ -786,9 +877,28 @@ export function VideoGallery({ className }: VideoGalleryProps) {
               muted
               playsInline
             />
+            {!isRecording && !recordedBlob && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <Button onClick={startRecording} className="pointer-events-auto bg-red-600 hover:bg-red-700 px-6 py-6 text-base">
+                  Start Recording
+                </Button>
+              </div>
+            )}
+            {recordedBlob && (
+              <div className="absolute inset-x-0 bottom-6 flex items-center justify-center gap-3">
+                <Button variant="outline" onClick={() => { try { (modalVideoRef.current as any)?.play?.(); } catch {} }}>Play</Button>
+                <Button variant="outline" onClick={() => { try { (modalVideoRef.current as any)?.pause?.(); (modalVideoRef.current as any).currentTime = 0; } catch {} }}>Rewind</Button>
+                <Button onClick={async () => { await saveRecording(); setIsPreviewModalOpen(false); }} className="bg-green-600 hover:bg-green-700">Save & Close</Button>
+                <Button variant="destructive" onClick={retakeRecording}>Retake</Button>
+              </div>
+            )}
           </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="destructive" onClick={() => { stopRecording(); closePreviewModal(); }}>Stop</Button>
+          <div className="flex justify-between gap-2 pt-2">
+            <div className="flex gap-2">
+              {isRecording && (
+                <Button variant="destructive" onClick={stopRecording}>Stop Recording</Button>
+              )}
+            </div>
             <Button variant="outline" onClick={closePreviewModal}>Close</Button>
           </div>
         </DialogContent>

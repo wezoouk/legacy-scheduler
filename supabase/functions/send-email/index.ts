@@ -28,8 +28,9 @@ serve(async (req) => {
       );
     }
 
-    // Use Resend's default test sender (always works)
-    const resendFrom = Deno.env.get('RESEND_FROM') || 'Legacy Scheduler <onboarding@resend.dev>';
+    // Build From header: Rembr - {user name}
+    const defaultFrom = 'Rembr <onboarding@resend.dev>';
+    const envFrom = Deno.env.get('RESEND_FROM');
     const replyTo = Deno.env.get('RESEND_REPLY_TO') || 'noreply@sugarbox.uk';
 
     // Parse request body
@@ -40,7 +41,8 @@ serve(async (req) => {
       subject, 
       content, 
       messageType,
-      attachments 
+      attachments,
+      senderName
     } = await req.json();
 
     console.log('Processing email request:', { recipientEmail, subject });
@@ -64,9 +66,14 @@ serve(async (req) => {
       ? content
       : content.replace(/\n/g, '<br>');
 
+    // Determine From header
+    const fromHeader = senderName
+      ? `Rembr - ${senderName} <onboarding@resend.dev>`
+      : (envFrom || defaultFrom);
+
     // Prepare email payload for Resend
     const emailPayload = {
-      from: resendFrom,
+      from: fromHeader,
       to: [recipientEmail],
       subject: subject,
       html: htmlContent,

@@ -10,6 +10,21 @@ export function MediaLibraryPage() {
   const [error, setError] = React.useState<string | null>(null);
   const mediaRefs = React.useRef<Map<string, HTMLMediaElement>>(new Map());
 
+  const formatDisplayName = React.useCallback((rawName: string) => {
+    // 1) Strip extension
+    let name = rawName.replace(/\.[a-z0-9]+$/i, '');
+    // 2) Remove leading timestamp/hash prefixes like 1759056786929_ or 2025-09-28_
+    name = name.replace(/^(\d{10,}|\d{4}-\d{2}-\d{2}|\d{8})([_-])/i, '');
+    // 3) Remove trailing numeric ids like -1695912345678 or _1695912345678
+    name = name.replace(/([_-])\d{10,}$/i, '');
+    // 4) Replace separators with spaces
+    name = name.replace(/[._-]+/g, ' ').trim();
+    // 5) Collapse multiple spaces
+    name = name.replace(/\s{2,}/g, ' ');
+    // 6) Fallback to original if empty
+    return name || rawName;
+  }, []);
+
   const setMediaRef = (path: string) => (el: HTMLMediaElement | null) => {
     if (!el) {
       mediaRefs.current.delete(path);
@@ -243,7 +258,7 @@ export function MediaLibraryPage() {
                 </div>
               </div>
               <div className="flex-1">
-                <div className="truncate text-sm text-gray-200">{f.name}</div>
+                <div className="truncate text-sm text-gray-200">{formatDisplayName(f.name)}</div>
               </div>
               <div className="flex items-center gap-2">
                 {vid || aud ? (

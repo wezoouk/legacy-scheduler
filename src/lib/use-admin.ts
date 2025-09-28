@@ -6,6 +6,9 @@ interface SiteSettings {
   heroBackgroundColor: string;
   heroTextColor: string;
   heroSubtextColor: string;
+  heroOverlayOpacity?: number; // 0..1 black overlay on hero
+  heroMediaOpacity?: number; // 0..1 opacity for background media
+  heroLayout?: 'boxed' | 'full'; // content width mode
   primaryFont: string;
   heroFont: string;
   primaryColor: string;
@@ -13,6 +16,8 @@ interface SiteSettings {
   siteName: string;
   heroTitle: string;
   heroSubtitle: string;
+  email_from_display?: string; // e.g., "Rembr - David West"
+  email_reply_to?: string; // optional override (server may enforce)
 }
 
 const defaultSiteSettings: SiteSettings = {
@@ -20,6 +25,9 @@ const defaultSiteSettings: SiteSettings = {
   heroBackgroundColor: '#ffffff',
   heroTextColor: '#0f172a',
   heroSubtextColor: '#64748b',
+  heroOverlayOpacity: 0.2,
+  heroMediaOpacity: 0.3,
+  heroLayout: 'boxed',
   primaryFont: 'Inter',
   heroFont: 'Inter',
   primaryColor: '#0f172a',
@@ -27,6 +35,8 @@ const defaultSiteSettings: SiteSettings = {
   siteName: 'Legacy Scheduler',
   heroTitle: 'Send messages. Forever.',
   heroSubtitle: 'Elegant scheduled messaging for legacy and care.',
+  email_from_display: '',
+  email_reply_to: '',
 };
 
 export function useAdmin() {

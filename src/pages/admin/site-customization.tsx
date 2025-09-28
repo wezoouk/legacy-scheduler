@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useAdmin } from '@/lib/use-admin';
+import { MediaService } from '@/lib/media-service';
 import { 
   Palette, 
   Type, 
@@ -29,6 +30,9 @@ const customizationSchema = z.object({
   heroFont: z.string().min(1, 'Hero font is required'),
   primaryColor: z.string().min(1, 'Primary color is required'),
   logoUrl: z.string().url().optional().or(z.literal('')),
+  // Email settings (optional)
+  email_from_display: z.string().optional().or(z.literal('')),
+  email_reply_to: z.string().optional().or(z.literal('')),
 });
 
 type CustomizationForm = z.infer<typeof customizationSchema>;
@@ -36,12 +40,14 @@ type CustomizationForm = z.infer<typeof customizationSchema>;
 export function SiteCustomization() {
   const { siteSettings, updateSiteSettings } = useAdmin();
   const [previewMode, setPreviewMode] = useState(false);
+  const mountedRef = useRef(false);
 
   const {
     register,
     handleSubmit,
     watch,
     setValue,
+    reset,
     formState: { errors, isSubmitting },
   } = useForm<CustomizationForm>({
     resolver: zodResolver(customizationSchema),
@@ -49,6 +55,28 @@ export function SiteCustomization() {
   });
 
   const watchedValues = watch();
+
+  // Debounce auto-persist of customization changes so they survive refreshes
+  useEffect(() => {
+    const t = setTimeout(() => {
+      // avoid immediate write on first mount to prevent clobbering stored values
+      if (!mountedRef.current) {
+        mountedRef.current = true;
+        return;
+      }
+      try {
+        updateSiteSettings(watchedValues);
+      } catch {}
+    }, 400);
+    return () => clearTimeout(t);
+  }, [watchedValues, updateSiteSettings]);
+
+  // When siteSettings load/changes, sync the form so fields show saved values
+  useEffect(() => {
+    try {
+      reset(siteSettings as any);
+    } catch {}
+  }, [siteSettings, reset]);
 
   // Get proper font family with fallbacks for web fonts
   const getFontFamily = (fontName: string) => {
@@ -142,15 +170,19 @@ export function SiteCustomization() {
               }}
             >
               {watchedValues.heroVideoUrl && (
-                <video
-                  autoPlay
-                  muted
-                  loop
-                  className="absolute inset-0 w-full h-full object-cover opacity-30"
-                  src={watchedValues.heroVideoUrl}
-                />
+                <>
+                  <video
+                    autoPlay
+                    muted
+                    loop
+                    className="absolute inset-0 w-full h-full object-cover"
+                    style={{ opacity: watchedValues.heroMediaOpacity ?? 0.3 }}
+                    src={watchedValues.heroVideoUrl}
+                  />
+                  <div className="absolute inset-0 bg-black" style={{ opacity: watchedValues.heroOverlayOpacity ?? 0.2 }} />
+                </>
               )}
-              <div className="relative z-10 text-center">
+              <div className={`relative z-10 text-center ${watchedValues.heroLayout === 'full' ? 'max-w-7xl' : 'max-w-4xl'} mx-auto`}>
                 <h1 
                   className="text-4xl font-bold mb-4"
                   style={{ color: watchedValues.heroTextColor }}
@@ -229,15 +261,74 @@ export function SiteCustomization() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="heroVideoUrl">Background Video URL (Optional)</Label>
+                <Label htmlFor="heroVideoUrl">Background Video (upload or URL)</Label>
               <Input
                 id="heroVideoUrl"
                 placeholder="https://example.com/hero-video.mp4"
                 {...register('heroVideoUrl')}
               />
+                <div className="mt-2 flex items-center gap-3">
+                  <input
+                    id="heroVideoUpload"
+                    type="file"
+                    accept="video/*,image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      if (!e.target.files || e.target.files.length === 0) return;
+                      try {
+                        const file = e.target.files[0];
+                        const res = await MediaService.uploadAttachment(file);
+                        // Update form and persist immediately so it survives refresh
+                        setValue('heroVideoUrl', res.url, { shouldDirty: true });
+                        try { updateSiteSettings({ heroVideoUrl: res.url }); } catch {}
+                        alert('Hero background uploaded. URL set.');
+                      } catch (err) {
+                        console.error('Hero upload failed:', err);
+                        alert('Upload failed');
+                      } finally {
+                        e.currentTarget.value = '';
+                      }
+                    }}
+                  />
+                  <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('heroVideoUpload')?.click()}>
+                    <Upload className="w-4 h-4 mr-2" /> Upload Background
+                  </Button>
+                  {watchedValues.heroVideoUrl && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setValue('heroVideoUrl', '')}
+                    >
+                      <X className="w-4 h-4 mr-1" /> Remove
+                    </Button>
+                  )}
+                </div>
               <p className="text-xs text-gray-500">
-                Add a background video to make your hero section more engaging
+                Add a background video or image to make your hero section more engaging
               </p>
+              {watchedValues.heroVideoUrl && (
+                <div className="mt-3 p-2 border rounded-md bg-muted/50">
+                  <div className="flex items-center gap-3">
+                    <div className="w-32 h-20 bg-black/10 overflow-hidden rounded">
+                      {/* Show preview as image or video */}
+                      {/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(watchedValues.heroVideoUrl) ? (
+                        <img src={watchedValues.heroVideoUrl} className="w-full h-full object-cover" />
+                      ) : (
+                        <video src={watchedValues.heroVideoUrl} className="w-full h-full object-cover" muted autoPlay loop />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm truncate" title={watchedValues.heroVideoUrl}>{watchedValues.heroVideoUrl}</div>
+                      <div className="text-xs text-muted-foreground">Currently set hero background</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('heroVideoUpload')?.click()}>Replace</Button>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setValue('heroVideoUrl', '')}>Remove</Button>
+                    </div>
+                  </div>
+                </div>
+              )}
               {errors.heroVideoUrl && (
                 <p className="text-sm text-destructive">{errors.heroVideoUrl.message}</p>
               )}
@@ -305,6 +396,47 @@ export function SiteCustomization() {
                 {errors.heroSubtextColor && (
                   <p className="text-sm text-destructive">{errors.heroSubtextColor.message}</p>
                 )}
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="heroMediaOpacity">Background Media Opacity</Label>
+                <input
+                  id="heroMediaOpacity"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={watchedValues.heroMediaOpacity ?? 0.3}
+                  onChange={(e) => setValue('heroMediaOpacity', parseFloat(e.target.value), { shouldDirty: true })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="heroOverlayOpacity">Overlay Darkness</Label>
+                <input
+                  id="heroOverlayOpacity"
+                  type="range"
+                  min={0}
+                  max={0.8}
+                  step={0.05}
+                  value={watchedValues.heroOverlayOpacity ?? 0.2}
+                  onChange={(e) => setValue('heroOverlayOpacity', parseFloat(e.target.value), { shouldDirty: true })}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Hero Content Width</Label>
+              <div className="flex items-center gap-4 text-sm">
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="heroLayout" checked={(watchedValues.heroLayout || 'boxed') === 'boxed'} onChange={() => setValue('heroLayout', 'boxed', { shouldDirty: true })} />
+                  Boxed (default)
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="heroLayout" checked={(watchedValues.heroLayout || 'boxed') === 'full'} onChange={() => setValue('heroLayout', 'full', { shouldDirty: true })} />
+                  Full width
+                </label>
               </div>
             </div>
           </CardContent>
@@ -405,6 +537,41 @@ export function SiteCustomization() {
                     </p>
                   </div>
                 </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Email Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Type className="w-5 h-5 mr-2" />
+              Email Settings
+            </CardTitle>
+            <CardDescription>Control the sender display used in outgoing emails</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="email_from_display">Sender display (From)</Label>
+                <Input
+                  id="email_from_display"
+                  placeholder="Rembr - Your Name"
+                  value={(watchedValues as any).email_from_display || ''}
+                  onChange={(e) => setValue('email_from_display' as any, e.target.value, { shouldDirty: true })}
+                />
+                <p className="text-xs text-muted-foreground">Shown in the inbox as the sender name. The email address is controlled by your server (Resend).</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email_reply_to">Reply-To (optional)</Label>
+                <Input
+                  id="email_reply_to"
+                  placeholder="noreply@sugarbox.uk"
+                  value={(watchedValues as any).email_reply_to || ''}
+                  onChange={(e) => setValue('email_reply_to' as any, e.target.value, { shouldDirty: true })}
+                />
+                <p className="text-xs text-muted-foreground">Where replies go. Your server may enforce a default Reply-To.</p>
               </div>
             </div>
           </CardContent>

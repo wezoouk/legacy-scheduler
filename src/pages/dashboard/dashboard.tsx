@@ -73,7 +73,7 @@ export function Dashboard() {
             <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
             <TabsTrigger value="calendar">Calendar</TabsTrigger>
             <TabsTrigger value="recording">Recording</TabsTrigger>
-            <TabsTrigger value="dms">Dead Man's Switch</TabsTrigger>
+            <TabsTrigger value="dms">Guardian Angel</TabsTrigger>
           </TabsList>
 
           <TabsContent value="messages">

@@ -18,7 +18,7 @@ export function AudioGallery({ className }: AudioGalleryProps) {
   const { messages, deleteMessage, createMessage } = useMessages();
   const { recipients } = useRecipients();
   const [audioMessages, setAudioMessages] = useState<any[]>([]);
-  const showExistingMessages = false; // Do not render existing messages in the top grid
+  const showExistingMessages = false; // Render only media-library items to avoid duplicates
   const [previewingAudio, setPreviewingAudio] = useState<any>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
@@ -87,6 +87,23 @@ export function AudioGallery({ className }: AudioGalleryProps) {
       }
     };
     loadLatest();
+
+    // Listen for freshly uploaded audio and prepend
+    const onUploaded = (e: any) => {
+      const d = e?.detail;
+      if (!d || d.kind !== 'audio') return;
+      const item = {
+        id: `media-${d.path}`,
+        title: d.title || d.path?.split('/')?.pop() || 'Audio',
+        cipherBlobUrl: d.url,
+        createdAt: d.createdAt || new Date().toISOString(),
+        isGalleryItem: true,
+        path: d.path,
+      } as any;
+      setPlaceholderAudios(prev => [item, ...prev].slice(0, Math.max(prev.length, 4)));
+    };
+    window.addEventListener('mediaUploaded', onUploaded as any);
+    return () => window.removeEventListener('mediaUploaded', onUploaded as any);
   }, []);
 
   // Load latest image/other files for Files area
@@ -673,7 +690,7 @@ export function AudioGallery({ className }: AudioGalleryProps) {
             );
           })}
         </div>
-      </div>
+        image.png      </div>
 
       {/* Audio Preview Dialog */}
       {previewingAudio && (

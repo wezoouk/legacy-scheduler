@@ -23,6 +23,7 @@ export interface SendEmailRequest {
   content: string;
   messageType: 'EMAIL' | 'VIDEO' | 'VOICE' | 'FILE';
   attachments?: EmailAttachment[];
+  senderName?: string;
 }
 
 export class EmailService {
@@ -79,7 +80,12 @@ export class EmailService {
           const response = await fetch(attachment.content);
           if (response.ok) {
             const arrayBuffer = await response.arrayBuffer();
-            const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+            const bytes = new Uint8Array(arrayBuffer);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            const base64 = btoa(binary);
             processedAttachments.push({
               ...attachment,
               content: base64
@@ -107,8 +113,8 @@ export class EmailService {
   }
 
   private static async callEdgeFunction(functionName: string, payload: any): Promise<any> {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
+    const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
       throw new Error('Supabase configuration missing');
@@ -139,16 +145,27 @@ export class EmailService {
       const processedContent = request.content
         .replace(/\[Name\]/g, request.recipientName)
         .replace(/\[Recipient Name\]/g, request.recipientName)
-        .replace(/\[Your Name\]/g, 'Legacy Scheduler');
+        .replace(/\[Your Name\]/g, 'Rembr');
 
       const processedSubject = request.subject
         .replace(/\[Name\]/g, request.recipientName)
         .replace(/\[Recipient Name\]/g, request.recipientName)
-        .replace(/\[Your Name\]/g, 'Legacy Scheduler');
+        .replace(/\[Your Name\]/g, 'Rembr');
 
       // Create request with processed content
       const contentProcessedRequest = {
         ...request,
+        // Include senderName from siteSettings if available, else derive
+        senderName: request.senderName || (() => {
+          try {
+            const user = JSON.parse(localStorage.getItem('legacyScheduler_user') || '{}');
+            const siteSettings = JSON.parse(localStorage.getItem('legacyScheduler_siteSettings') || '{}');
+            if (siteSettings?.email_from_display) return siteSettings.email_from_display;
+            return user?.profile?.name || user?.name || (user?.email ? String(user.email).split('@')[0] : undefined);
+          } catch {
+            return undefined;
+          }
+        })(),
         subject: processedSubject,
         content: processedContent
       };
@@ -157,7 +174,7 @@ export class EmailService {
       const processedRequest = await this.processAttachments(contentProcessedRequest);
       
       // Optional override: force using development sender for testing scheduled emails
-      const forceDev = import.meta.env.VITE_FORCE_DEV_EMAIL === 'true';
+      const forceDev = (import.meta as any).env?.VITE_FORCE_DEV_EMAIL === 'true';
       if (forceDev) {
         return await this.sendEmailDirect(processedRequest);
       }
@@ -191,7 +208,7 @@ export class EmailService {
       }
       
       // Check if we have a development fallback URL configured
-      const devResendUrl = import.meta.env.VITE_DEV_RESEND_URL;
+      const devResendUrl = (import.meta as any).env?.VITE_DEV_RESEND_URL;
       
       // If edge function fails for other reasons and we have a dev fallback, try it
       if (error instanceof Error && (
@@ -220,7 +237,7 @@ export class EmailService {
 
   private static async sendEmailDirect(request: SendEmailRequest): Promise<EmailDeliveryResult> {
     try {
-      const devResendUrl = import.meta.env.VITE_DEV_RESEND_URL;
+      const devResendUrl = (import.meta as any).env?.VITE_DEV_RESEND_URL;
       
       if (!devResendUrl) {
         throw new Error('Development Resend URL not configured');
@@ -229,7 +246,7 @@ export class EmailService {
       console.log('Sending email via development API:', {
         recipient: request.recipientEmail,
         subject: request.subject,
-        hasAttachments: request.attachments?.length > 0,
+        hasAttachments: Array.isArray(request.attachments) && request.attachments.length > 0,
         url: devResendUrl
       });
 
@@ -244,7 +261,7 @@ export class EmailService {
           recipientName: request.recipientName,
           subject: request.subject,
           content: request.content,
-          attachments: request.attachments,
+          attachments: request.attachments || [],
         }),
       });
 
@@ -263,7 +280,6 @@ export class EmailService {
       // Update delivery status
       await this.updateDeliveryStatus(request.messageId, request.recipientEmail, {
         status: 'PENDING',
-        resendMessageId: result.messageId,
       });
 
       return {
@@ -311,9 +327,10 @@ export class EmailService {
     const missingKeys: string[] = [];
 
     for (const key of requiredKeys) {
+      const envObj: any = (import.meta as any).env || {};
       const value = key === 'RESEND_API_KEY' ? 
-        import.meta.env.VITE_RESEND_API_KEY || process.env.RESEND_API_KEY :
-        import.meta.env[key];
+        envObj.VITE_RESEND_API_KEY || (typeof process !== 'undefined' ? (process as any).env?.RESEND_API_KEY : undefined) :
+        envObj[key];
       if (!value || value.includes('placeholder')) {
         missingKeys.push(key);
       }

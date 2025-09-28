@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Calendar, User, Send, Clock, Shield, CheckCircle, AlertCircle, X } from 'lucide-react';
+import { Play, Calendar, User, Clock, Shield, CheckCircle, AlertCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { useMessages } from '@/lib/use-messages';
 import { useRecipients } from '@/lib/use-recipients';
 import { format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
+import { MediaService } from '@/lib/media-service';
 
 interface VideoSelectionDialogProps {
   open: boolean;
@@ -18,26 +19,61 @@ export function VideoSelectionDialog({ open, onOpenChange, onSelectVideo }: Vide
   const { messages } = useMessages();
   const { recipients } = useRecipients();
   const [videoMessages, setVideoMessages] = useState<any[]>([]);
-  const [galleryVideos, setGalleryVideos] = useState<any[]>([]);
+  const [storageVideos, setStorageVideos] = useState<any[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedItem, setSelectedItem] = useState<{ url: string; title: string } | null>(null);
+
+  const formatDisplayName = (rawName: string) => {
+    let name = (rawName || '').replace(/\.[a-z0-9]+$/i, '');
+    name = name.replace(/^(\d{10,}|\d{4}-\d{2}-\d{2}|\d{8})([_-])/i, '');
+    name = name.replace(/([_-])\d{10,}$/i, '');
+    name = name.replace(/[._-]+/g, ' ').trim();
+    name = name.replace(/\s{2,}/g, ' ');
+    return name || rawName;
+  };
 
   useEffect(() => {
-    // Filter messages that have video content
-    const videos = messages.filter(message => 
-      (message.types?.includes('VIDEO') || message.type === 'VIDEO') &&
-      (message.cipherBlobUrl || message.videoRecording)
-    );
-    setVideoMessages(videos);
+    const load = async () => {
+      // Filter messages that have video content
+      const videos = messages.filter(message => 
+        (message.types?.includes('VIDEO') || message.type === 'VIDEO') &&
+        (message.cipherBlobUrl || message.videoRecording)
+      );
+      // Sort newest first
+      videos.sort((a: any, b: any) => {
+        const ad = (a.updatedAt || a.createdAt || 0);
+        const bd = (b.updatedAt || b.createdAt || 0);
+        return new Date(bd).getTime() - new Date(ad).getTime();
+      });
+      setVideoMessages(videos);
 
-    // Load gallery videos from localStorage
-    const savedGalleryVideos = localStorage.getItem('gallery-videos');
-    if (savedGalleryVideos) {
+      // Load latest videos from Supabase Storage
       try {
-        const parsed = JSON.parse(savedGalleryVideos);
-        setGalleryVideos(parsed);
-      } catch (error) {
-        console.error('Error loading gallery videos:', error);
+        const lists = await Promise.all([
+          MediaService.listFiles('uploads').catch(() => []),
+          MediaService.listFiles('recordings').catch(() => []),
+        ]);
+        const all = (lists.flat() as any[]);
+        const vids = all.filter(f => /\.(mp4|webm|mov|m4v|avi|mkv)$/i.test(f.name));
+        vids.sort((a: any, b: any) => {
+          const ad = (a.updated_at || a.created_at || '');
+          const bd = (b.updated_at || b.created_at || '');
+          return bd.localeCompare(ad);
+        });
+        const mapped = vids.slice(0, 24).map((f: any) => ({
+          id: `media-${f.path}`,
+          title: f.name,
+          url: MediaService.getPublicUrl(f.path),
+          createdAt: (f.updated_at || f.created_at || new Date().toISOString()),
+          path: f.path,
+        }));
+        setStorageVideos(mapped);
+      } catch (e) {
+        console.error('Failed to load videos from storage:', e);
       }
-    }
+    };
+
+    load();
   }, [messages]);
 
   const getDeliveryStatus = (message: any) => {
@@ -78,24 +114,31 @@ export function VideoSelectionDialog({ open, onOpenChange, onSelectVideo }: Vide
         </DialogHeader>
         
         <div className="space-y-4">
-          {videoMessages.length === 0 && galleryVideos.length === 0 ? (
+          {videoMessages.length === 0 && storageVideos.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Play className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No videos found. Record a video first to select from existing recordings.</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">
-              {/* Gallery Videos */}
-              {galleryVideos.map((video) => {
-                const videoUrl = video.cipherBlobUrl;
-                const deliveryStatus = { status: 'GALLERY', color: 'bg-purple-100 text-purple-800', icon: Play };
+              {/* Storage Media Videos */}
+              {storageVideos.map((video) => {
+                const videoUrl = video.url;
+                const deliveryStatus = { status: 'MEDIA', color: 'bg-purple-100 text-purple-800', icon: Play };
                 const StatusIcon = deliveryStatus.icon;
                 
                 return (
                   <Card 
                     key={video.id} 
-                    className="cursor-pointer hover:shadow-md transition-shadow group"
-                    onClick={() => handleSelectVideo(video)}
+                    className={`cursor-pointer hover:shadow-md transition-shadow group ${selectedId === video.id ? 'ring-2 ring-white/80' : ''}`}
+                    onClick={() => {
+                      setSelectedId(video.id);
+                      setSelectedItem({ url: video.url, title: video.title });
+                    }}
+                    onDoubleClick={() => {
+                      onSelectVideo(video.url, video.title);
+                      onOpenChange(false);
+                    }}
                   >
                     <CardContent className="p-0">
                       <div className="relative aspect-video bg-gradient-to-br from-blue-500 to-purple-600 rounded-t-lg overflow-hidden">
@@ -125,18 +168,18 @@ export function VideoSelectionDialog({ open, onOpenChange, onSelectVideo }: Vide
                         <div className="absolute top-2 left-2">
                           <Badge className={`${deliveryStatus.color} text-xs px-2 py-1`}>
                             <StatusIcon className="w-3 h-3 mr-1" />
-                            GALLERY
+                            MEDIA
                           </Badge>
                         </div>
                       </div>
                       
                       {/* Video info */}
                       <div className="p-3">
-                        <h3 className="font-medium text-sm text-foreground truncate" title={video.title}>
-                          {video.title}
+                        <h3 className="font-medium text-sm text-foreground truncate" title={formatDisplayName(video.title)}>
+                          {formatDisplayName(video.title)}
                         </h3>
                         <p className="text-xs text-muted-foreground truncate">
-                          Gallery Video
+                          Media Library
                         </p>
                       </div>
                     </CardContent>
@@ -225,10 +268,12 @@ export function VideoSelectionDialog({ open, onOpenChange, onSelectVideo }: Vide
           )}
         </div>
         
-        <div className="flex justify-end space-x-2 pt-4 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
+        <div className="flex justify-between space-x-2 pt-4 border-t">
+          <div />
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button disabled={!selectedItem} onClick={() => { if (selectedItem) { onSelectVideo(selectedItem.url, selectedItem.title); onOpenChange(false); } }}>Use Selected</Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

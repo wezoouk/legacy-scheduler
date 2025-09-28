@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Volume2, Calendar, User, Send, Clock, Shield, CheckCircle, AlertCircle, X } from 'lucide-react';
+import { Volume2, Calendar, User, Clock, Shield, CheckCircle, AlertCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { useMessages } from '@/lib/use-messages';
 import { useRecipients } from '@/lib/use-recipients';
 import { format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
+import { MediaService } from '@/lib/media-service';
 
 interface AudioSelectionDialogProps {
   open: boolean;
@@ -18,26 +19,57 @@ export function AudioSelectionDialog({ open, onOpenChange, onSelectAudio }: Audi
   const { messages } = useMessages();
   const { recipients } = useRecipients();
   const [audioMessages, setAudioMessages] = useState<any[]>([]);
-  const [galleryAudios, setGalleryAudios] = useState<any[]>([]);
+  const [storageAudios, setStorageAudios] = useState<any[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedItem, setSelectedItem] = useState<{ url: string; title: string } | null>(null);
+
+  const formatDisplayName = (rawName: string) => {
+    let name = (rawName || '').replace(/\.[a-z0-9]+$/i, '');
+    name = name.replace(/^(\d{10,}|\d{4}-\d{2}-\d{2}|\d{8})([_-])/i, '');
+    name = name.replace(/([_-])\d{10,}$/i, '');
+    name = name.replace(/[._-]+/g, ' ').trim();
+    name = name.replace(/\s{2,}/g, ' ');
+    return name || rawName;
+  };
 
   useEffect(() => {
-    // Filter messages that have audio content
-    const audios = messages.filter(message => 
-      (message.types?.includes('VOICE') || message.type === 'VOICE') &&
-      (message.audioRecording || message.cipherBlobUrl)
-    );
-    setAudioMessages(audios);
+    const load = async () => {
+      // Filter messages that have audio content
+      const audios = messages.filter(message => 
+        (message.types?.includes('VOICE') || message.type === 'VOICE') &&
+        (message.audioRecording || message.cipherBlobUrl)
+      );
+      // Sort newest first
+      audios.sort((a: any, b: any) => {
+        const ad = (a.updatedAt || a.createdAt || 0);
+        const bd = (b.updatedAt || b.createdAt || 0);
+        return new Date(bd).getTime() - new Date(ad).getTime();
+      });
+      setAudioMessages(audios);
 
-    // Load gallery audios from localStorage
-    const savedGalleryAudios = localStorage.getItem('gallery-audios');
-    if (savedGalleryAudios) {
+      // Load latest from storage
       try {
-        const parsed = JSON.parse(savedGalleryAudios);
-        setGalleryAudios(parsed);
-      } catch (error) {
-        console.error('Error loading gallery audios:', error);
+        const lists = await Promise.all([
+          MediaService.listFiles('uploads').catch(() => []),
+          MediaService.listFiles('audio').catch(() => []),
+          MediaService.listFiles('voice').catch(() => []),
+          MediaService.listFiles('recordings').catch(() => []),
+        ]);
+        const all = (lists.flat() as any[]);
+        const items = all.filter(f => /\.(mp3|wav|ogg|m4a|aac|webm)$/i.test(f.name));
+        items.sort((a: any, b: any) => ( (b.updated_at || b.created_at || '')?.localeCompare(a.updated_at || a.created_at || '') ));
+        setStorageAudios(items.slice(0, 24).map((f: any) => ({
+          id: `media-${f.path}`,
+          title: f.name,
+          url: MediaService.getPublicUrl(f.path),
+          createdAt: (f.updated_at || f.created_at || new Date().toISOString()),
+          path: f.path,
+        })));
+      } catch (e) {
+        console.error('Failed to load audios from storage:', e);
       }
-    }
+    };
+    load();
   }, [messages]);
 
   const getDeliveryStatus = (message: any) => {
@@ -87,24 +119,25 @@ export function AudioSelectionDialog({ open, onOpenChange, onSelectAudio }: Audi
         </DialogHeader>
         
         <div className="space-y-4">
-          {audioMessages.length === 0 && galleryAudios.length === 0 ? (
+          {audioMessages.length === 0 && storageAudios.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Volume2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No audio recordings found. Record audio first to select from existing recordings.</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">
-              {/* Gallery Audios */}
-              {galleryAudios.map((audio) => {
-                const audioUrl = audio.cipherBlobUrl;
-                const deliveryStatus = { status: 'GALLERY', color: 'bg-purple-100 text-purple-800', icon: Volume2 };
+              {/* Storage Audios */}
+              {storageAudios.map((audio) => {
+                const audioUrl = audio.url;
+                const deliveryStatus = { status: 'MEDIA', color: 'bg-purple-100 text-purple-800', icon: Volume2 };
                 const StatusIcon = deliveryStatus.icon;
                 
                 return (
                   <Card 
                     key={audio.id} 
-                    className="cursor-pointer hover:shadow-md transition-shadow group"
-                    onClick={() => handleSelectAudio(audio)}
+                    className={`cursor-pointer hover:shadow-md transition-shadow group ${selectedId === audio.id ? 'ring-2 ring-white/80' : ''}`}
+                    onClick={() => { setSelectedId(audio.id); setSelectedItem({ url: audio.url, title: audio.title }); }}
+                    onDoubleClick={() => { onSelectAudio(audio.url, audio.title); onOpenChange(false); }}
                   >
                     <CardContent className="p-0">
                       <div className="relative aspect-video bg-gradient-to-br from-green-500 to-blue-600 rounded-t-lg overflow-hidden">
@@ -136,18 +169,18 @@ export function AudioSelectionDialog({ open, onOpenChange, onSelectAudio }: Audi
                         <div className="absolute top-2 left-2">
                           <Badge className={`${deliveryStatus.color} text-xs px-2 py-1`}>
                             <StatusIcon className="w-3 h-3 mr-1" />
-                            GALLERY
+                            MEDIA
                           </Badge>
                         </div>
                       </div>
                       
                       {/* Audio info */}
                       <div className="p-3">
-                        <h3 className="font-medium text-sm text-foreground truncate" title={audio.title}>
-                          {audio.title}
+                        <h3 className="font-medium text-sm text-foreground truncate" title={formatDisplayName(audio.title)}>
+                          {formatDisplayName(audio.title)}
                         </h3>
                         <p className="text-xs text-muted-foreground truncate">
-                          Gallery Audio
+                          Media Library
                         </p>
                       </div>
                     </CardContent>

@@ -336,7 +336,7 @@ export function MessageList() {
                         {message.scope === 'DMS' && (
                           <Badge className="bg-red-100 text-red-800 text-xs px-1.5 py-0.5">
                             <Shield className="h-3 w-3 mr-1" />
-                            DMS
+                            Guardian Angel
                           </Badge>
                         )}
                         {isOverdue && (
@@ -568,10 +568,10 @@ export function MessageList() {
                                 }`}>
                                   {message.status}
                                 </Badge>
-                                {message.scope === 'DMS' && (
+                        {message.scope === 'DMS' && (
                                   <Badge className="bg-red-100 text-red-800 text-xs px-1.5 py-0.5">
-                                    <Shield className="h-3 w-3 mr-1" />
-                                    DMS
+                            <Shield className="h-3 w-3 mr-1" />
+                            Guardian Angel
                                   </Badge>
                                 )}
                               </div>
@@ -654,10 +654,10 @@ export function MessageList() {
                                 }`}>
                                   {message.status}
                                 </Badge>
-                                {message.scope === 'DMS' && (
+                        {message.scope === 'DMS' && (
                                   <Badge className="bg-red-100 text-red-800 text-xs px-1.5 py-0.5">
-                                    <Shield className="h-3 w-3 mr-1" />
-                                    DMS
+                            <Shield className="h-3 w-3 mr-1" />
+                            Guardian Angel
                                   </Badge>
                                 )}
                               </div>

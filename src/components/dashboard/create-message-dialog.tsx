@@ -91,7 +91,35 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const modalVideoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isVideoRecordModalOpen, setIsVideoRecordModalOpen] = useState(false);
+  const [isVideoNameDialogOpen, setIsVideoNameDialogOpen] = useState(false);
+  const [videoNameInput, setVideoNameInput] = useState('');
+  const [isAudioRecordModalOpen, setIsAudioRecordModalOpen] = useState(false);
+  const [isAudioNameDialogOpen, setIsAudioNameDialogOpen] = useState(false);
+  const [audioNameInput, setAudioNameInput] = useState('');
+  const audioModalRef = useRef<HTMLAudioElement>(null);
+  
+  const startPreviewStream = async () => {
+    try {
+      if (streamRef.current) {
+        if (modalVideoRef.current) {
+          (modalVideoRef.current as any).srcObject = streamRef.current;
+          (modalVideoRef.current as any).play?.().catch(() => {});
+        }
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      streamRef.current = stream;
+      if (modalVideoRef.current) {
+        (modalVideoRef.current as any).srcObject = stream;
+        (modalVideoRef.current as any).play?.().catch(() => {});
+      }
+    } catch (e) {
+      console.error('Failed to open preview stream:', e);
+    }
+  };
   
   const { createMessage } = useMessages();
   const { recipients, refreshRecipients } = useRecipients();
@@ -146,16 +174,24 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
 
   const startRecording = async () => {
     try {
-      const constraints = selectedTypes.includes('VIDEO')
-        ? { video: true, audio: true }
-        : { audio: true };
+      // Reuse preview stream if available, else request a fresh one
+      let stream = streamRef.current;
+      if (!stream) {
+        const constraints = selectedTypes.includes('VIDEO')
+          ? { video: true, audio: true }
+          : { audio: true };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        streamRef.current = stream;
+      }
       
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      
-      if (selectedTypes.includes('VIDEO') && videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
+      if (selectedTypes.includes('VIDEO')) {
+        if (isVideoRecordModalOpen && modalVideoRef.current) {
+          (modalVideoRef.current as any).srcObject = stream;
+          (modalVideoRef.current as any).play?.().catch(() => {});
+        } else if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+        }
       }
 
       const mediaRecorder = new MediaRecorder(stream);
@@ -180,9 +216,14 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
         const url = URL.createObjectURL(blob);
         setRecordingUrl(url);
         
-        if (selectedTypes.includes('VIDEO') && videoRef.current) {
-          videoRef.current.srcObject = null;
-          videoRef.current.src = url;
+        if (selectedTypes.includes('VIDEO')) {
+          if (isVideoRecordModalOpen && modalVideoRef.current) {
+            (modalVideoRef.current as any).srcObject = null;
+            modalVideoRef.current.src = url;
+          } else if (videoRef.current) {
+            videoRef.current.srcObject = null;
+            videoRef.current.src = url;
+          }
         }
       };
       
@@ -191,6 +232,54 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
     } catch (error) {
       console.error('Error starting recording:', error);
       alert('Could not access camera/microphone. Please check permissions.');
+    }
+  };
+
+  // Auto-start preview stream when the record modal opens
+  useEffect(() => {
+    if (isVideoRecordModalOpen) {
+      startPreviewStream();
+    }
+  }, [isVideoRecordModalOpen]);
+
+  // Bind recorded clip into modal player for review
+  useEffect(() => {
+    if (!isVideoRecordModalOpen || !recordingUrl || !modalVideoRef.current) return;
+    try {
+      (modalVideoRef.current as any).srcObject = null;
+      modalVideoRef.current.src = recordingUrl;
+      const el = modalVideoRef.current as HTMLVideoElement;
+      const onLoaded = () => {
+        try { el.currentTime = 0; el.pause(); } catch {}
+      };
+      el.addEventListener('loadedmetadata', onLoaded, { once: true } as any);
+    } catch {}
+  }, [recordingUrl, isVideoRecordModalOpen]);
+
+  // Audio helpers
+  const startAudioRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => chunks.push(e.data);
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        setRecordedBlob(blob);
+        if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+        const url = URL.createObjectURL(blob);
+        setRecordingUrl(url);
+        if (audioModalRef.current) {
+          audioModalRef.current.src = url;
+        }
+      };
+      recorder.start();
+      setIsRecording(true);
+    } catch (e) {
+      console.error('Failed to start audio recording:', e);
+      alert('Could not access microphone. Please check permissions.');
     }
   };
 
@@ -274,11 +363,30 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
         if (recordedBlob) {
           console.log('Processing recorded video blob');
           try {
-            // Upload to Supabase Storage - NO FALLBACK
-            const videoResult = await MediaService.uploadVideo(recordedBlob, 'video.webm');
+            // Upload to Supabase Storage using message title as filename
+            const baseTitle = (data.title || 'video')
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/(^-|-$)/g, '')
+              .slice(0, 50);
+            const filename = `${baseTitle}-${Date.now()}.webm`;
+            const videoResult = await MediaService.uploadVideo(recordedBlob, filename);
             videoUrl = videoResult.url;
           content += `\n\n📹 Video Message: <a href="${videoResult.url}" target="_blank" rel="noopener noreferrer">Open video</a>`;
             console.log('Video uploaded to Supabase Storage:', videoResult.url);
+
+            // Notify galleries so the new video appears first immediately
+            try {
+              window.dispatchEvent(new CustomEvent('mediaUploaded', {
+                detail: {
+                  kind: 'video',
+                  path: videoResult.path,
+                  url: videoResult.url,
+                  title: data.title || 'Video Recording',
+                  createdAt: new Date().toISOString(),
+                }
+              }));
+            } catch {}
           } catch (error) {
             console.error('Failed to upload video to Supabase Storage:', error);
             throw new Error(`Failed to upload video: ${error.message}`);
@@ -300,11 +408,30 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
         if (recordedBlob) {
           console.log('Processing recorded audio blob');
           try {
-            // Upload to Supabase Storage - NO FALLBACK
-            const audioResult = await MediaService.uploadAudio(recordedBlob, 'audio.webm');
+            // Upload to Supabase Storage using message title as filename
+            const baseTitle = (data.title || 'audio')
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/(^-|-$)/g, '')
+              .slice(0, 50);
+            const filename = `${baseTitle}-${Date.now()}.webm`;
+            const audioResult = await MediaService.uploadAudio(recordedBlob, filename);
             audioUrl = audioResult.url;
           content += `\n\n🎤 Voice recording: <a href="${audioResult.url}" target="_blank" rel="noopener noreferrer">Listen</a>`;
             console.log('Audio uploaded to Supabase Storage:', audioResult.url);
+
+            // Notify galleries so the new audio appears first immediately
+            try {
+              window.dispatchEvent(new CustomEvent('mediaUploaded', {
+                detail: {
+                  kind: 'audio',
+                  path: audioResult.path,
+                  url: audioResult.url,
+                  title: data.title || 'Audio Recording',
+                  createdAt: new Date().toISOString(),
+                }
+              }));
+            } catch {}
           } catch (error) {
             console.error('Failed to upload audio to Supabase Storage:', error);
             throw new Error(`Failed to upload audio: ${error.message}`);
@@ -497,49 +624,45 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
           {/* Recording/Upload Section */}
           {selectedTypes.includes('VIDEO') && (
             <div className="space-y-3">
-              <Label>Video Recording</Label>
-              
-              {/* Existing Videos Selection */}
-              <div className="border rounded-lg p-4 bg-gray-50">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium">Select Existing Video</span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsVideoSelectionOpen(true)}
-                  >
-                    Browse Videos
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Choose from previously recorded videos or record a new one below.
-                </p>
+              <div className="flex items-center justify-between">
+                <Label>Video</Label>
               </div>
-              
-              <div className="border rounded-lg p-4">
-                <video
-                  ref={videoRef}
-                  className="w-full max-h-64 bg-black rounded mb-3"
-                  controls={!isRecording}
-                  muted={isRecording}
-                />
-                <div className="flex space-x-2">
+              <div className="">
+                <div className="w-[240px] h-[180px] bg-black rounded mb-3 overflow-hidden mx-auto">
+                  <video
+                    ref={videoRef}
+                    className="w-full h-full object-contain"
+                    controls={!isRecording}
+                    muted={isRecording}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
                   {!isRecording ? (
-                    <Button type="button" onClick={startRecording} variant="outline">
-                      <Video className="h-4 w-4 mr-2" />
-                      Record New Video
-                    </Button>
+                    <>
+                      <Button type="button" onClick={() => { setIsVideoRecordModalOpen(true); }} variant="outline">
+                        <Video className="h-4 w-4 mr-2" />
+                        Record New Video
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => setIsVideoSelectionOpen(true)}>
+                        Get video from library
+                      </Button>
+                    </>
                   ) : (
                     <Button type="button" onClick={stopRecording} variant="destructive">
                       <Square className="h-4 w-4 mr-2" />
                       Stop Recording
                     </Button>
                   )}
-                  {recordedBlob && (
+                  {(recordedBlob || selectedVideoUrl) && (
                     <Button type="button" variant="ghost" onClick={() => {
                       setRecordedBlob(null);
                       setRecordingUrl(null);
+                      setSelectedVideoUrl(null);
+                      setSelectedVideoTitle('');
+                      if (videoRef.current) {
+                        (videoRef.current as any).srcObject = null;
+                        videoRef.current.src = '';
+                      }
                     }}>
                       <Trash2 className="h-4 w-4 mr-2" />
                       Delete
@@ -552,33 +675,24 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
 
           {selectedTypes.includes('VOICE') && (
             <div className="space-y-3">
-              <Label>Voice Recording</Label>
-              
-              {/* Existing Audio Selection */}
-              <div className="border rounded-lg p-4 bg-gray-50">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium">Select Existing Audio</span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsAudioSelectionOpen(true)}
-                  >
-                    Browse Audio
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Choose from previously recorded audio or record a new one below.
-                </p>
+              <div className="flex items-center justify-between">
+                <Label>Voice Recording</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsAudioSelectionOpen(true)}
+                >
+                  Browse Audio
+                </Button>
               </div>
-              
-              <div className="border rounded-lg p-4">
+              <div>
                 {(recordingUrl || selectedAudioUrl) && (
                   <audio src={recordingUrl || selectedAudioUrl || ''} controls className="w-full mb-3" />
                 )}
                 <div className="flex space-x-2">
                   {!isRecording ? (
-                    <Button type="button" onClick={startRecording} variant="outline">
+                    <Button type="button" onClick={() => setIsAudioRecordModalOpen(true)} variant="outline">
                       <Mic className="h-4 w-4 mr-2" />
                       Record New Audio
                     </Button>
@@ -606,57 +720,50 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
 
           {selectedTypes.includes('FILE') && (
             <div className="space-y-3">
-              <Label>File Attachments</Label>
-              <div className="border rounded-lg p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm text-muted-foreground">Select from Media Library</span>
+              <div className="flex items-center justify-between">
+                <Label>File Attachments</Label>
+                <div className="flex items-center gap-2">
                   <Button type="button" variant="outline" size="sm" onClick={() => setIsFileSelectionOpen(true)}>Browse Files</Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Choose Files
+                  </Button>
                 </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="mb-3"
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Choose Files
-                </Button>
-                
-                {uploadedFiles.length > 0 && (
-                  <div className="space-y-2">
-                    {uploadedFiles.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between p-2 bg-muted rounded">
-                        <span className="text-sm">{file.name} ({(file.size / 1024).toFixed(1)} KB)</span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeFile(index)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
+              {uploadedFiles.length > 0 && (
+                <div className="space-y-2">
+                  {uploadedFiles.map((file, index) => (
+                    <div key={index} className="flex items-center justify-between p-2 bg-muted rounded">
+                      <span className="text-sm">{file.name} ({(file.size / 1024).toFixed(1)} KB)</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeFile(index)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
-          {/* DMS Protection */}
+          {/* Guardian Angel Protection */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <Label className="flex items-center">
                   <Shield className="h-4 w-4 mr-2 text-red-600" />
-                  Dead Man's Switch Protection
+                  Guardian Angel Protection
                 </Label>
                 <p className="text-sm text-muted-foreground">
                   This message will be automatically sent if you miss your regular check-ins
@@ -672,7 +779,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
                 <div className="flex items-center justify-between text-blue-300 mb-1">
                   <div className="flex items-center">
                     <Shield className="h-4 w-4 mr-2" />
-                    <span className="font-medium text-sm">DMS Protected Message</span>
+                    <span className="font-medium text-sm">Guardian Angel Protected Message</span>
                   </div>
                   <Button
                     type="button"
@@ -681,11 +788,11 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
                     onClick={() => setShowDmsActivation(true)}
                     className="text-xs h-6 px-2 bg-yellow-500 hover:bg-yellow-600 text-black border-yellow-500 hover:border-yellow-600"
                   >
-                    Configure DMS
+                    Configure Guardian Angel
                   </Button>
                 </div>
                 <p className="text-blue-400 text-xs">
-                  This message will be sent automatically if you fail to check in according to your DMS configuration.
+                  This message will be sent automatically if you fail to check in according to your Guardian Angel configuration.
                 </p>
               </div>
             )}
@@ -1027,6 +1134,75 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
           }}
         />
 
+        {/* Audio Recording Modal */}
+        <Dialog open={isAudioRecordModalOpen} onOpenChange={(o) => {
+          setIsAudioRecordModalOpen(o);
+          if (!o) {
+            if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+            setIsRecording(false);
+          }
+        }}>
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Record Audio</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="bg-black/30 p-3 rounded">
+                <audio ref={audioModalRef} controls className="w-full" />
+              </div>
+              <div className="flex justify-between">
+                <div className="flex gap-2">
+                  {!isRecording ? (
+                    <Button onClick={startAudioRecording}>Start Recording</Button>
+                  ) : (
+                    <Button variant="destructive" onClick={stopRecording}>Stop Recording</Button>
+                  )}
+                </div>
+                <Button variant="outline" onClick={() => setIsAudioRecordModalOpen(false)}>Close</Button>
+              </div>
+              {recordedBlob && (
+                <div className="flex items-center justify-end gap-2">
+                  <Button variant="destructive" onClick={() => { setRecordedBlob(null); setRecordingUrl(null); if (audioModalRef.current) audioModalRef.current.src = ''; }}>Retake</Button>
+                  <Button onClick={() => { setAudioNameInput(watch('title') || 'My audio'); setIsAudioNameDialogOpen(true); }} className="bg-green-600 hover:bg-green-700">Save & Close</Button>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Name Audio Dialog */}
+        <Dialog open={isAudioNameDialogOpen} onOpenChange={setIsAudioNameDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Name Your Audio</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <Label htmlFor="audio-name-input">File name</Label>
+              <Input id="audio-name-input" value={audioNameInput} onChange={(e) => setAudioNameInput(e.target.value)} placeholder="Enter a name…" />
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setIsAudioNameDialogOpen(false)}>Cancel</Button>
+                <Button onClick={async () => {
+                  try {
+                    if (!recordedBlob) return;
+                    const base = (audioNameInput || 'audio').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 50);
+                    const filename = `${base}-${Date.now()}.webm`;
+                    const res = await MediaService.uploadAudio(recordedBlob as Blob, filename);
+                    setSelectedAudioUrl(res.url);
+                    setSelectedAudioTitle(audioNameInput || filename);
+                    setRecordedBlob(null);
+                    setRecordingUrl(null);
+                    setIsAudioNameDialogOpen(false);
+                    setIsAudioRecordModalOpen(false);
+                    try { window.dispatchEvent(new CustomEvent('mediaUploaded', { detail: { kind: 'audio', path: res.path, url: res.url, title: audioNameInput || filename, createdAt: new Date().toISOString() } })); } catch {}
+                  } catch (e) {
+                    alert('Failed to save audio');
+                  }
+                }}>Save</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         <FileSelectionDialog
           open={isFileSelectionOpen}
           onOpenChange={setIsFileSelectionOpen}
@@ -1036,6 +1212,112 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
             setValue('content', `${current}\n<a href="${url}" target="_blank" rel="noopener noreferrer">${safe}</a>`);
           }}
         />
+
+        {/* Video Recording Modal - preview first, then start */}
+        <Dialog open={isVideoRecordModalOpen} onOpenChange={(o) => {
+          setIsVideoRecordModalOpen(o);
+          if (!o) {
+            // cleanup
+            if (streamRef.current) {
+              streamRef.current.getTracks().forEach(t => t.stop());
+              streamRef.current = null;
+            }
+            setIsRecording(false);
+          }
+        }}>
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle>Record Video</DialogTitle>
+            </DialogHeader>
+            <div className="w-full h-[60vh] bg-black relative flex items-center justify-center">
+              <video
+                ref={modalVideoRef}
+                className="w-full h-full object-contain"
+                autoPlay
+                muted
+                playsInline
+              />
+              {!isRecording && !recordedBlob && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <Button onClick={startRecording} className="pointer-events-auto bg-red-600 hover:bg-red-700 px-6 py-6 text-base">Start Recording</Button>
+                </div>
+              )}
+              {recordedBlob && (
+                <div className="absolute inset-x-0 bottom-6 flex items-center justify-center gap-3">
+                  <Button variant="outline" onClick={() => { try { (modalVideoRef.current as any)?.play?.(); } catch {} }}>Play</Button>
+                  <Button variant="outline" onClick={() => { try { (modalVideoRef.current as any)?.pause?.(); (modalVideoRef.current as any).currentTime = 0; } catch {} }}>Rewind</Button>
+                  <Button
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={() => {
+                      // Ask for a name before saving
+                      setVideoNameInput(watch('title') || 'My video');
+                      setIsVideoNameDialogOpen(true);
+                    }}
+                  >Save & Close</Button>
+                  <Button variant="destructive" onClick={() => { setRecordedBlob(null); setRecordingUrl(null); }}>Retake</Button>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-between pt-2">
+              <div>
+                {isRecording && (
+                  <Button variant="destructive" onClick={stopRecording}>Stop Recording</Button>
+                )}
+              </div>
+              <Button variant="outline" onClick={() => setIsVideoRecordModalOpen(false)}>Close</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Name Video Dialog */}
+        <Dialog open={isVideoNameDialogOpen} onOpenChange={setIsVideoNameDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Name Your Video</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <Label htmlFor="video-name-input">File name</Label>
+              <Input
+                id="video-name-input"
+                value={videoNameInput}
+                onChange={(e) => setVideoNameInput(e.target.value)}
+                placeholder="Enter a name…"
+              />
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => setIsVideoNameDialogOpen(false)}>Cancel</Button>
+                <Button
+                  onClick={async () => {
+                    try {
+                      if (!recordedBlob) return;
+                      const baseTitle = (videoNameInput || 'video')
+                        .toLowerCase()
+                        .replace(/[^a-z0-9]+/g, '-')
+                        .replace(/(^-|-$)/g, '')
+                        .slice(0, 50);
+                      const filename = `${baseTitle}-${Date.now()}.webm`;
+                      const res = await MediaService.uploadVideo(recordedBlob as Blob, filename);
+                      setSelectedVideoUrl(res.url);
+                      setSelectedVideoTitle(videoNameInput || filename);
+                      if (videoRef.current) {
+                        videoRef.current.srcObject = null;
+                        videoRef.current.src = res.url;
+                      }
+                      setRecordedBlob(null);
+                      setRecordingUrl(null);
+                      setIsVideoNameDialogOpen(false);
+                      setIsVideoRecordModalOpen(false);
+                      try {
+                        window.dispatchEvent(new CustomEvent('mediaUploaded', { detail: { kind: 'video', path: res.path, url: res.url, title: videoNameInput || filename, createdAt: new Date().toISOString() } }));
+                      } catch {}
+                    } catch (e) {
+                      alert('Failed to save video');
+                    }
+                  }}
+                >Save</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   );
