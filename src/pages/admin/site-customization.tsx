@@ -626,6 +626,20 @@ export function SiteCustomization() {
               >
                 Blue Theme
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  // Light warm tone
+                  setValue('heroBackgroundColor', '#fff7ed'); // warm cream (orange-50)
+                  setValue('heroTextColor', '#1f2937'); // slate-800 for readability
+                  setValue('heroSubtextColor', '#a16207'); // amber-600
+                  setValue('heroFont', 'Georgia');
+                  setValue('primaryColor', '#d97706'); // orange-600 accent
+                }}
+              >
+                Warm Light
+              </Button>
             </div>
           </CardContent>
         </Card>
