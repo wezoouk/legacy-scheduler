@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMessages } from "@/lib/use-messages";
 import { useRecipients } from "@/lib/use-recipients";
 import { useAuth } from "@/lib/auth-context";
@@ -29,10 +30,22 @@ import {
   Heart,
   Timer,
   Bell,
-  Edit
+  Edit,
+  X
 } from "lucide-react";
 import { format, addDays } from "date-fns";
+import { DmsService } from "@/lib/dms-service";
 import { EditMessageDialog } from "./edit-message-dialog";
+import { toast } from "../../../hooks/use-toast";
+import { supabase } from "@/lib/supabase";
+
+// Helper function to strip HTML tags and get plain text preview
+function getPlainTextPreview(html: string, maxLength: number = 100): string {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  const text = div.textContent || div.innerText || '';
+  return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+}
 
 // Countdown Timer Component
 function CountdownTimer({ targetDate, isPaused = false }: { targetDate: Date; isPaused?: boolean }) {
@@ -93,10 +106,18 @@ function CountdownTimer({ targetDate, isPaused = false }: { targetDate: Date; is
 
   return (
     <div className="font-mono text-lg">
-      <span className="text-2xl font-bold text-blue-600">{timeLeft.days}</span>
-      <span className="text-sm text-muted-foreground">d </span>
-      <span className="text-xl font-bold text-blue-600">{timeLeft.hours.toString().padStart(2, '0')}</span>
-      <span className="text-sm text-muted-foreground">:</span>
+      {timeLeft.days > 0 && (
+        <>
+          <span className="text-2xl font-bold text-blue-600">{timeLeft.days}</span>
+          <span className="text-sm text-muted-foreground">d </span>
+        </>
+      )}
+      {(timeLeft.days > 0 || timeLeft.hours > 0) && (
+        <>
+          <span className="text-xl font-bold text-blue-600">{timeLeft.hours.toString().padStart(2, '0')}</span>
+          <span className="text-sm text-muted-foreground">:</span>
+        </>
+      )}
       <span className="text-xl font-bold text-blue-600">{timeLeft.minutes.toString().padStart(2, '0')}</span>
       <span className="text-sm text-muted-foreground">:</span>
       <span className="text-xl font-bold text-blue-600">{timeLeft.seconds.toString().padStart(2, '0')}</span>
@@ -161,8 +182,10 @@ const saveDmsCycleToLocalStorage = (cycle: DmsCycle): void => {
 };
 
 const dmsConfigSchema = z.object({
-  frequencyDays: z.number().min(1, "Frequency must be at least 1 day").max(365, "Frequency cannot exceed 365 days"),
-  graceDays: z.number().min(0, "Grace period cannot be negative").max(30, "Grace period cannot exceed 30 days"),
+  frequencyDays: z.number().min(1, "Frequency must be at least 1").max(365, "Frequency cannot exceed 365"),
+  frequencyUnit: z.enum(['minutes','hours','days']).default('days'),
+  graceDays: z.number().min(0, "Grace period cannot be negative").max(30, "Grace period cannot exceed 30"),
+  graceUnit: z.enum(['minutes','hours','days']).default('days'),
   durationDays: z.number().min(1, "Duration must be at least 1 day").max(365, "Duration cannot exceed 365 days"),
   checkInReminderHours: z.number().min(1, "Check-in reminder must be at least 1 hour").max(168, "Check-in reminder cannot exceed 7 days"),
   channels: z.object({
@@ -179,7 +202,9 @@ type DmsConfigForm = z.infer<typeof dmsConfigSchema>;
 interface DmsConfig {
   id: string;
   frequencyDays: number;
+  frequencyUnit?: 'minutes' | 'hours' | 'days';
   graceDays: number;
+  graceUnit?: 'minutes' | 'hours' | 'days';
   durationDays: number;
   checkInReminderHours: number;
   channels: {
@@ -212,9 +237,11 @@ export function DmsConfiguration() {
   const [isLoading, setIsLoading] = useState(true);
   const [showCheckIn, setShowCheckIn] = useState(false);
   const [editingMessage, setEditingMessage] = useState<any>(null);
+  const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
+  const [showFinalConfirm, setShowFinalConfirm] = useState(false);
   
   const { user } = useAuth();
-  const { messages, updateMessage } = useMessages();
+  const { messages, updateMessage, refreshMessages } = useMessages();
   const { recipients } = useRecipients();
 
   const {
@@ -227,7 +254,9 @@ export function DmsConfiguration() {
     resolver: zodResolver(dmsConfigSchema),
     defaultValues: {
       frequencyDays: 7,
+      frequencyUnit: 'days',
       graceDays: 3,
+      graceUnit: 'days',
       channels: {
         email: true,
         sms: false,
@@ -238,35 +267,117 @@ export function DmsConfiguration() {
 
   const watchedChannels = watch('channels');
 
+  // Helper to add time by unit
+  const addByUnit = (date: Date, value: number, unit: 'minutes' | 'hours' | 'days') => {
+    const ms = unit === 'minutes' ? 60 * 1000 : unit === 'hours' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    return new Date(date.getTime() + value * ms);
+  };
+
+  // Calculate grace deadline (next check-in + grace period)
+  const getGraceDeadline = () => {
+    if (!currentCycle || !dmsConfig) return new Date();
+    const graceUnit = (dmsConfig as any).graceUnit || 'days';
+    console.log('🔍 getGraceDeadline:', {
+      graceDays: dmsConfig.graceDays,
+      graceUnit: graceUnit,
+      nextCheckinAt: currentCycle.nextCheckinAt,
+      deadline: addByUnit(currentCycle.nextCheckinAt, dmsConfig.graceDays, graceUnit)
+    });
+    return addByUnit(currentCycle.nextCheckinAt, dmsConfig.graceDays, graceUnit);
+  };
+
   useEffect(() => {
     if (user) {
       fetchDmsConfig();
+      // Automatically check for overdue DMS messages when page loads
+      checkForOverdueMessages();
     }
   }, [user, setValue]);
+  
+  // Auto-check for overdue messages every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (user && dmsConfig?.status === 'ACTIVE') {
+        checkForOverdueMessages();
+      }
+    }, 30000); // Check every 30 seconds
+    
+    return () => clearInterval(interval);
+  }, [user, dmsConfig]);
+  
+  const checkForOverdueMessages = async () => {
+    if (!supabase) return;
+    
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    
+    try {
+      const response = await fetch(
+        `${supabaseUrl}/functions/v1/process-scheduled-messages`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({})
+        }
+      );
+      
+      if (response.ok) {
+        // Refresh messages to show any status changes
+        await refreshMessages();
+      }
+    } catch (error) {
+      // Silent fail - this runs in the background
+      console.log('Background check completed');
+    }
+  };
 
   const fetchDmsConfig = async () => {
     if (!user) return;
 
     try {
-      // Load DMS config from localStorage
-      const configData = loadDmsConfigFromLocalStorage();
-      
-      if (configData) {
-        setDmsConfig(configData);
-        
-        // Set form values
-        setValue('frequencyDays', configData.frequencyDays);
-        setValue('graceDays', configData.graceDays);
-        setValue('durationDays', configData.durationDays || 30);
-        setValue('checkInReminderHours', configData.checkInReminderHours || 24);
-        setValue('channels', configData.channels);
-        setValue('escalationContactId', configData.escalationContactId || '');
-        setValue('emergencyInstructions', configData.emergencyInstructions || '');
-
-        // Load current cycle from localStorage
-        const cycleData = loadDmsCycleFromLocalStorage();
-        if (cycleData) {
-          setCurrentCycle(cycleData);
+      const dbCfg = await DmsService.getConfigForUser(user.id);
+      if (dbCfg) {
+        const uiCfg = {
+          id: dbCfg.id!,
+          frequencyDays: dbCfg.frequencyDays || dbCfg.frequency_days,
+          frequencyUnit: dbCfg.frequencyUnit || dbCfg.frequency_unit || 'days',
+          graceDays: dbCfg.graceDays || dbCfg.grace_days,
+          graceUnit: dbCfg.graceUnit || dbCfg.grace_unit || 'days',
+          durationDays: dbCfg.durationDays || dbCfg.duration_days,
+          checkInReminderHours: dbCfg.checkInReminderHours || dbCfg.check_in_reminder_hours,
+          channels: dbCfg.channels,
+          escalationContactId: dbCfg.escalationContactId || dbCfg.escalation_contact_id || undefined,
+          emergencyInstructions: dbCfg.emergencyInstructions || dbCfg.emergency_instructions || undefined,
+          status: dbCfg.status,
+          cooldownUntil: dbCfg.cooldownUntil ? new Date(dbCfg.cooldownUntil) : (dbCfg.cooldown_until ? new Date(dbCfg.cooldown_until) : undefined),
+          lastCheckin: dbCfg.lastCheckin ? new Date(dbCfg.lastCheckin) : (dbCfg.last_checkin ? new Date(dbCfg.last_checkin) : undefined),
+          nextCheckin: dbCfg.nextCheckin ? new Date(dbCfg.nextCheckin) : (dbCfg.next_checkin ? new Date(dbCfg.next_checkin) : undefined),
+          startDate: dbCfg.startDate ? new Date(dbCfg.startDate) : (dbCfg.start_date ? new Date(dbCfg.start_date) : undefined),
+          endDate: dbCfg.endDate ? new Date(dbCfg.endDate) : (dbCfg.end_date ? new Date(dbCfg.end_date) : undefined),
+        } as any;
+        setDmsConfig(uiCfg);
+        setValue('frequencyDays', uiCfg.frequencyDays);
+        setValue('graceDays', uiCfg.graceDays);
+        setValue('frequencyUnit', dbCfg.frequencyUnit || dbCfg.frequency_unit || 'days');
+        setValue('graceUnit', dbCfg.graceUnit || dbCfg.grace_unit || 'days');
+        setValue('durationDays', uiCfg.durationDays || 30);
+        setValue('checkInReminderHours', uiCfg.checkInReminderHours || 24);
+        setValue('channels', uiCfg.channels);
+        setValue('escalationContactId', uiCfg.escalationContactId || '');
+        setValue('emergencyInstructions', uiCfg.emergencyInstructions || '');
+        const dbCycle = await DmsService.getLatestCycle(uiCfg.id, user.id);
+        if (dbCycle) {
+          setCurrentCycle({
+            id: dbCycle.id!,
+            nextCheckinAt: new Date(dbCycle.nextCheckinAt || dbCycle.next_checkin_at),
+            state: dbCycle.state,
+            reminders: dbCfg.reminders || [1,3,7],
+            checkInReminderSent: dbCycle.checkInReminderSent || dbCycle.check_in_reminder_sent,
+            lastReminderSent: dbCycle.lastReminderSent ? new Date(dbCycle.lastReminderSent) : (dbCycle.last_reminder_sent ? new Date(dbCycle.last_reminder_sent) : undefined),
+          });
         }
       }
     } catch (err) {
@@ -288,13 +399,50 @@ export function DmsConfiguration() {
         endDate: dmsConfig?.endDate || addDays(new Date(), data.durationDays),
       };
 
-      // Save to localStorage
-      saveDmsConfigToLocalStorage(configData);
-      setDmsConfig(configData);
+      // Save to Supabase
+      const saved = await DmsService.upsertConfig({
+        id: typeof configData.id === 'string' && configData.id.startsWith('dms-') ? undefined : (configData as any).id,
+        user_id: user.id,
+        frequency_days: configData.frequencyDays,
+        frequency_unit: (watch('frequencyUnit') as any) || 'days',
+        grace_days: configData.graceDays,
+        grace_unit: (watch('graceUnit') as any) || 'days',
+        duration_days: configData.durationDays || 30,
+        check_in_reminder_hours: configData.checkInReminderHours || 24,
+        channels: configData.channels,
+        escalation_contact_id: configData.escalationContactId || null,
+        emergency_instructions: configData.emergencyInstructions || null,
+        status: configData.status,
+        cooldown_until: configData.cooldownUntil ? configData.cooldownUntil.toISOString() : null,
+        last_checkin: configData.lastCheckin ? configData.lastCheckin.toISOString() : null,
+        next_checkin: configData.nextCheckin ? configData.nextCheckin.toISOString() : null,
+        start_date: configData.startDate ? configData.startDate.toISOString() : null,
+        end_date: configData.endDate ? configData.endDate.toISOString() : null,
+      });
+      if (saved) {
+        setDmsConfig({
+          id: saved.id!,
+          frequencyDays: saved.frequency_days,
+          frequencyUnit: (saved as any).frequency_unit || 'days',
+          graceDays: saved.grace_days,
+          graceUnit: (saved as any).grace_unit || 'days',
+          durationDays: saved.duration_days,
+          checkInReminderHours: saved.check_in_reminder_hours,
+          channels: saved.channels,
+          escalationContactId: saved.escalation_contact_id || undefined,
+          emergencyInstructions: saved.emergency_instructions || undefined,
+          status: saved.status,
+          cooldownUntil: saved.cooldown_until ? new Date(saved.cooldown_until) : undefined,
+          lastCheckin: saved.last_checkin ? new Date(saved.last_checkin) : undefined,
+          nextCheckin: saved.next_checkin ? new Date(saved.next_checkin) : undefined,
+          startDate: saved.start_date ? new Date(saved.start_date) : undefined,
+          endDate: saved.end_date ? new Date(saved.end_date) : undefined,
+        } as any);
+      }
 
       // If DMS is active, update the cycle
       if (configData.status === 'ACTIVE') {
-        const nextCheckin = addDays(new Date(), configData.frequencyDays);
+        const nextCheckin = addByUnit(new Date(), configData.frequencyDays, (watch('frequencyUnit') as any) || 'days');
         const cycleData: DmsCycle = {
           id: currentCycle?.id || `cycle-${configData.id}`,
           nextCheckinAt: nextCheckin,
@@ -320,20 +468,52 @@ export function DmsConfiguration() {
       ...dmsConfig,
       status: 'ACTIVE' as const,
     };
-
-    saveDmsConfigToLocalStorage(updatedData);
-    setDmsConfig(updatedData);
-
-    const cycleData = {
-      id: currentCycle?.id || `cycle-${updatedData.id}`,
-      configId: updatedData.id,
-      nextCheckinAt: addDays(new Date(), updatedData.frequencyDays),
-      state: 'ACTIVE' as const,
-      reminders: [1, 3, 7],
-    };
-
-    saveDmsCycleToLocalStorage(cycleData);
-    setCurrentCycle(cycleData);
+    setDmsConfig(updatedData as any);
+    (async () => {
+      const saved = await DmsService.upsertConfig({
+        id: (updatedData as any).id,
+        user_id: user.id,
+        frequency_days: updatedData.frequencyDays,
+        frequency_unit: (watch('frequencyUnit') as any) || 'days',
+        grace_days: updatedData.graceDays,
+        grace_unit: (watch('graceUnit') as any) || 'days',
+        duration_days: updatedData.durationDays || 30,
+        check_in_reminder_hours: updatedData.checkInReminderHours || 24,
+        channels: updatedData.channels,
+        escalation_contact_id: updatedData.escalationContactId || null,
+        emergency_instructions: updatedData.emergencyInstructions || null,
+        status: 'ACTIVE',
+        cooldown_until: updatedData.cooldownUntil ? updatedData.cooldownUntil.toISOString() : null,
+        last_checkin: updatedData.lastCheckin ? updatedData.lastCheckin.toISOString() : null,
+        next_checkin: null,
+        start_date: updatedData.startDate ? updatedData.startDate.toISOString() : new Date().toISOString(),
+        end_date: updatedData.endDate ? updatedData.endDate.toISOString() : addDays(new Date(), updatedData.durationDays || 30).toISOString(),
+      });
+      if (saved) {
+        const unit = (saved as any).frequency_unit || 'days';
+        const val = saved.frequency_days || 7;
+        const mult = unit === 'minutes' ? 60*1000 : unit === 'hours' ? 60*60*1000 : 24*60*60*1000;
+        const next = new Date(Date.now() + val * mult);
+        const cycle = await DmsService.upsertCycle({
+          config_id: saved.id!,
+          user_id: user.id,
+          next_checkin_at: next.toISOString(),
+          state: 'ACTIVE',
+          reminders: [1,3,7],
+          check_in_reminder_sent: false,
+        });
+        if (cycle) {
+          setCurrentCycle({
+            id: cycle.id!,
+            nextCheckinAt: new Date(cycle.next_checkin_at),
+            state: cycle.state,
+            reminders: cycle.reminders || [1,3,7],
+          });
+          // also save next_checkin into config for edge processing convenience
+          await DmsService.upsertConfig({ ...saved, next_checkin: cycle.next_checkin_at });
+        }
+      }
+    })();
   };
 
   const pauseDms = async () => {
@@ -380,13 +560,78 @@ export function DmsConfiguration() {
     }
   };
 
+  const initiateEmergencyRelease = () => {
+    setShowEmergencyConfirm(true);
+  };
+
+  const confirmEmergencyRelease = () => {
+    setShowEmergencyConfirm(false);
+    setShowFinalConfirm(true);
+  };
+
+  const testDmsRelease = async () => {
+    setShowFinalConfirm(false);
+    
+    try {
+      console.log('⚠️ EMERGENCY DMS RELEASE TRIGGERED ⚠️');
+      toast({
+        title: "Emergency Release Initiated",
+        description: "Triggering immediate release of all protected messages...",
+      });
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      console.log('Session token:', token ? 'Found' : 'Missing');
+
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-scheduled-messages`;
+      console.log('Calling Edge Function:', url);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ emergency_release: true }),
+      });
+
+      console.log('Response status:', response.status);
+      const result = await response.json();
+      console.log('Response body:', result);
+      
+      if (response.ok) {
+        toast({
+          title: "✅ Emergency Release Successful!",
+          description: `Processed ${result.processed || 0} messages, ${result.errors || 0} errors. Messages are being sent!`,
+        });
+        await fetchDmsConfig();
+        console.log('✅ Emergency release complete! Messages sent.');
+      } else {
+        console.error('Edge Function error:', result);
+        toast({
+          title: "Release Failed",
+          description: result.error || `HTTP ${response.status}: ${JSON.stringify(result)}`,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Emergency release error:', error);
+      toast({
+        title: "Release Failed",
+        description: error instanceof Error ? error.message : "Failed to trigger emergency release",
+        variant: "destructive",
+      });
+    }
+  };
+
   const performCheckin = async () => {
     if (!dmsConfig || !currentCycle || !user) return;
 
     console.log('Performing check-in...', { dmsConfig, currentCycle, user });
 
     const now = new Date();
-    const nextCheckin = addDays(now, dmsConfig.frequencyDays);
+    const unit = (watch('frequencyUnit') as any) || 'days';
+    const nextCheckin = addByUnit(now, dmsConfig.frequencyDays, unit);
 
     // Check if DMS has expired
     if (dmsConfig.endDate && now > dmsConfig.endDate) {
@@ -394,18 +639,20 @@ export function DmsConfiguration() {
       return;
     }
 
-    const cycleData = {
-      ...currentCycle,
-      nextCheckinAt: nextCheckin,
-      state: 'ACTIVE' as const,
-      checkInReminderSent: false,
-      lastReminderSent: undefined,
-    };
-
-    console.log('Saving cycle data:', cycleData);
-
-    saveDmsCycleToLocalStorage(cycleData);
-    setCurrentCycle(cycleData);
+    if (dmsConfig.id) {
+      const dbCfg = await DmsService.getConfigForUser(user.id);
+      const dbCycle = dmsConfig.id ? await DmsService.getLatestCycle(dmsConfig.id as any, user.id) : null;
+      if (dbCfg && dbCycle) {
+        await DmsService.checkIn(dbCfg, dbCycle);
+        setCurrentCycle({
+          ...currentCycle,
+          nextCheckinAt: nextCheckin,
+          state: 'ACTIVE',
+          checkInReminderSent: false,
+          lastReminderSent: undefined,
+        });
+      }
+    }
     setShowCheckIn(false);
 
     alert('Check-in successful! Your next check-in is due on ' + format(nextCheckin, 'PPP'));
@@ -441,7 +688,8 @@ export function DmsConfiguration() {
     }
   };
 
-  const dmsMessages = messages.filter(m => m.scope === 'DMS');
+  // Only show DMS messages that haven't been sent yet (DRAFT status)
+  const dmsMessages = messages.filter(m => m.scope === 'DMS' && m.status !== 'SENT');
 
   if (isLoading) {
     return (
@@ -451,12 +699,35 @@ export function DmsConfiguration() {
     );
   }
 
+  // Only show Guardian Angel page if there are protected messages
+  // Show empty state if no DMS messages OR if DMS is not active
+  if (dmsMessages.length === 0 || !dmsConfig || dmsConfig.status !== 'ACTIVE') {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 space-y-4">
+        <Shield className="h-16 w-16 text-muted-foreground/30" />
+        <div className="text-center space-y-2">
+          <h2 className="text-2xl font-bold text-muted-foreground">No Guardian Angel Protection Active</h2>
+          <p className="text-muted-foreground max-w-md">
+            Create a message with Guardian Angel protection to monitor your check-ins and automatically release messages if you miss them.
+          </p>
+        </div>
+        <Button 
+          onClick={() => window.location.href = '/dashboard'}
+          className="mt-4"
+        >
+          <Mail className="h-4 w-4 mr-2" />
+          Create Protected Message
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold flex items-center">
           <Shield className="h-6 w-6 mr-2 text-red-600" />
-          Dead Man's Switch
+          Guardian Angel
         </h2>
         <p className="text-muted-foreground mt-2">
           Configure automatic message release when regular check-ins are missed
@@ -527,7 +798,7 @@ export function DmsConfiguration() {
               Regular Check-in Required
             </CardTitle>
             <CardDescription className="text-green-700">
-              You must check in every {dmsConfig.frequencyDays} days to prevent message release
+              You must check in every {dmsConfig.frequencyDays} {(dmsConfig as any).frequencyUnit || 'days'} to prevent message release
               {dmsConfig.endDate && (
                 <span className="block mt-1">
                   DMS expires on {format(dmsConfig.endDate, 'PPP')}
@@ -649,17 +920,27 @@ export function DmsConfiguration() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="frequencyDays" className="text-sm">Check-in Frequency (Days)</Label>
-                <Input
-                  id="frequencyDays"
-                  type="number"
-                  min="1"
-                  max="365"
-                  className="h-8 text-sm"
-                  {...register("frequencyDays", { valueAsNumber: true })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  How often to check in
-                </p>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="frequencyDays"
+                    type="number"
+                    min="1"
+                    max="365"
+                    className="h-8 text-sm w-24"
+                    {...register("frequencyDays", { valueAsNumber: true })}
+                  />
+                  <Select value={watch('frequencyUnit') as any} onValueChange={(v)=>setValue('frequencyUnit', v as any)}>
+                    <SelectTrigger className="h-8 text-sm w-28">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="minutes">minutes</SelectItem>
+                      <SelectItem value="hours">hours</SelectItem>
+                      <SelectItem value="days">days</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-xs text-muted-foreground">How often to check in</p>
                 {errors.frequencyDays && (
                   <p className="text-xs text-destructive">{errors.frequencyDays.message}</p>
                 )}
@@ -667,17 +948,27 @@ export function DmsConfiguration() {
 
               <div className="space-y-1">
                 <Label htmlFor="graceDays" className="text-sm">Grace Period (Days)</Label>
-                <Input
-                  id="graceDays"
-                  type="number"
-                  min="0"
-                  max="30"
-                  className="h-8 text-sm"
-                  {...register("graceDays", { valueAsNumber: true })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Extra time before release
-                </p>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="graceDays"
+                    type="number"
+                    min="0"
+                    max="30"
+                    className="h-8 text-sm w-24"
+                    {...register("graceDays", { valueAsNumber: true })}
+                  />
+                  <Select value={watch('graceUnit') as any} onValueChange={(v)=>setValue('graceUnit', v as any)}>
+                    <SelectTrigger className="h-8 text-sm w-28">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="minutes">minutes</SelectItem>
+                      <SelectItem value="hours">hours</SelectItem>
+                      <SelectItem value="days">days</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-xs text-muted-foreground">Extra time before release</p>
                 {errors.graceDays && (
                   <p className="text-xs text-destructive">{errors.graceDays.message}</p>
                 )}
@@ -807,19 +1098,35 @@ export function DmsConfiguration() {
               {dmsConfig.status === 'INACTIVE' && (
                 <Button onClick={activateDms} className="bg-green-600 hover:bg-green-700">
                   <Play className="h-4 w-4 mr-2" />
-                  Activate DMS
+                  Activate Guardian Angel
                 </Button>
               )}
               {dmsConfig.status === 'ACTIVE' && (
-                <Button onClick={pauseDms} variant="outline">
-                  <Pause className="h-4 w-4 mr-2" />
-                  Pause DMS
-                </Button>
+                <>
+                  <Button onClick={pauseDms} variant="outline">
+                    <Pause className="h-4 w-4 mr-2" />
+                    Pause Guardian Angel
+                  </Button>
+                  {dmsMessages.length === 0 && (
+                    <Button 
+                      onClick={async () => {
+                        if (confirm('No protected messages found. Deactivate Guardian Angel?')) {
+                          await pauseDms();
+                          alert('Guardian Angel deactivated. Create a protected message to reactivate.');
+                        }
+                      }} 
+                      variant="destructive"
+                    >
+                      <X className="h-4 w-4 mr-2" />
+                      Deactivate (No Messages)
+                    </Button>
+                  )}
+                </>
               )}
               {dmsConfig.status === 'PAUSED' && (
                 <Button onClick={resumeDms} className="bg-green-600 hover:bg-green-700">
                   <Play className="h-4 w-4 mr-2" />
-                  Resume DMS
+                  Resume Guardian Angel
                 </Button>
               )}
             </div>
@@ -890,6 +1197,40 @@ export function DmsConfiguration() {
               </div>
             )}
             
+            <div className="mb-4 p-4 bg-gradient-to-r from-yellow-100 via-yellow-50 to-red-50 border-2 border-yellow-500 rounded-lg shadow-md">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-yellow-500 rounded-full">
+                    <AlertTriangle className="h-5 w-5 text-black" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-900 flex items-center">
+                      Emergency Release
+                      <span className="ml-2 px-2 py-0.5 bg-red-600 text-white text-xs font-bold rounded">DANGER</span>
+                    </p>
+                    <p className="text-xs text-gray-700 font-medium">
+                      Immediately release all protected messages without waiting for check-in deadline
+                    </p>
+                  </div>
+                </div>
+                <Button 
+                  onClick={initiateEmergencyRelease}
+                  variant="default"
+                  size="sm"
+                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold border-2 border-black shadow-lg"
+                >
+                  <AlertTriangle className="h-4 w-4 mr-1" />
+                  Release Now
+                </Button>
+              </div>
+              <div className="mt-3 p-2 bg-yellow-200 border border-yellow-600 rounded">
+                <p className="text-xs text-gray-900 font-semibold flex items-center">
+                  <AlertTriangle className="h-3 w-3 mr-1 text-red-600" />
+                  WARNING: This action cannot be undone. All {dmsMessages.length} protected message{dmsMessages.length !== 1 ? 's' : ''} will be sent immediately.
+                </p>
+              </div>
+            </div>
+            
             <div className="space-y-3">
               {dmsMessages.slice(0, 5).map(message => {
                 const messageTypes = Array.isArray(message.types) ? message.types : [message.types || 'EMAIL'];
@@ -917,7 +1258,7 @@ export function DmsConfiguration() {
                           </div>
                         </div>
                         <p className="text-sm text-gray-600 mb-2 line-clamp-2">
-                          {message.content}
+                          {getPlainTextPreview(message.content, 150)}
                         </p>
                         <div className="flex items-center space-x-4 text-xs text-muted-foreground">
                           <div className="flex items-center space-x-1">
@@ -937,7 +1278,7 @@ export function DmsConfiguration() {
                         <p className="text-xs text-orange-700 font-medium">Time until auto-release:</p>
                         {currentCycle && dmsConfig?.status === 'ACTIVE' ? (
                           <CountdownTimer 
-                            targetDate={addDays(currentCycle.nextCheckinAt, dmsConfig.graceDays)} 
+                            targetDate={getGraceDeadline()} 
                             isPaused={dmsConfig?.status === 'PAUSED' || currentCycle.state === 'PAUSED'} 
                           />
                         ) : (
@@ -1012,7 +1353,7 @@ export function DmsConfiguration() {
                 </div>
                 <div className="text-right">
                   <CountdownTimer 
-                    targetDate={addDays(currentCycle.nextCheckinAt, dmsConfig.graceDays)} 
+                    targetDate={getGraceDeadline()} 
                     isPaused={dmsConfig.status === 'PAUSED' || currentCycle.state === 'PAUSED'} 
                   />
                 </div>
@@ -1052,7 +1393,7 @@ export function DmsConfiguration() {
                           </div>
                         </div>
                         <p className="text-xs text-gray-600 line-clamp-2 mb-2">
-                          {message.content}
+                          {getPlainTextPreview(message.content, 100)}
                         </p>
                         <div className="flex items-center space-x-3 text-xs text-muted-foreground">
                           <div className="flex items-center space-x-1">
@@ -1068,11 +1409,17 @@ export function DmsConfiguration() {
                     </div>
                     
                     <div className="space-y-2">
-                      <div className="flex items-center space-x-2">
-                        <Badge className="bg-red-100 text-red-800">
-                          <Shield className="h-3 w-3 mr-1" />
-                          DMS Protected
-                        </Badge>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <Badge className="bg-red-100 text-red-800">
+                            <Shield className="h-3 w-3 mr-1" />
+                            DMS Protected
+                          </Badge>
+                          <Badge variant="outline" className="text-xs font-medium text-gray-700">
+                            <Calendar className="h-3 w-3 mr-1" />
+                            Created {format(message.createdAt, 'MMM d, h:mm a')}
+                          </Badge>
+                        </div>
                         {dmsConfig?.status === 'ACTIVE' && currentCycle && (
                           <Button 
                             onClick={() => setShowCheckIn(true)}
@@ -1085,37 +1432,19 @@ export function DmsConfiguration() {
                           </Button>
                         )}
                       </div>
-                    
-                      <div className="space-y-2 mt-3">
-                        <div className="flex items-center justify-between">
-                          <div className="text-center">
-                            <p className="text-xs text-orange-700 mb-1">Auto-release in:</p>
-                            <CountdownTimer 
-                              targetDate={addDays(currentCycle.nextCheckinAt, dmsConfig.graceDays)} 
-                              isPaused={dmsConfig?.status === 'PAUSED' || currentCycle.state === 'PAUSED'} 
-                            />
-                          </div>
-                        </div>
-                        
-                        <div className="flex justify-center space-x-2">
-                          <Button 
-                            onClick={() => setEditingMessage(message)}
-                            variant="outline"
-                            size="sm"
-                            className="text-xs"
-                          >
-                            <Edit className="h-3 w-3 mr-1" />
-                            View/Edit
-                          </Button>
-                          <Button 
-                            onClick={performCheckin}
-                            size="sm"
-                            className="bg-green-600 hover:bg-green-700 text-xs"
-                          >
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            Prevent Release
-                          </Button>
-                        </div>
+                      <div className="pt-2 border-t border-orange-200">
+                        <p className="text-xs text-orange-800 font-semibold mb-1">Shared release countdown:</p>
+                        {dmsConfig?.status === 'ACTIVE' && currentCycle ? (
+                          <CountdownTimer 
+                            targetDate={getGraceDeadline()} 
+                            isPaused={dmsConfig.status === 'PAUSED' || currentCycle.state === 'PAUSED'} 
+                          />
+                        ) : (
+                          <p className="text-sm text-gray-700">DMS not active</p>
+                        )}
+                        <p className="text-xs text-orange-700 font-medium mt-1">
+                          All DMS messages share the same check-in deadline
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -1137,6 +1466,116 @@ export function DmsConfiguration() {
             setEditingMessage(null);
           }}
         />
+      )}
+
+      {/* Emergency Release - First Confirmation Dialog */}
+      {showEmergencyConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-gradient-to-br from-yellow-100 via-orange-50 to-red-100 border-4 border-yellow-500 rounded-lg shadow-2xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-center mb-4">
+              <div className="p-3 bg-yellow-500 rounded-full animate-pulse">
+                <AlertTriangle className="h-10 w-10 text-black" />
+              </div>
+            </div>
+            
+            <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">
+              ⚠️ EMERGENCY RELEASE WARNING ⚠️
+            </h2>
+            
+            <div className="bg-white border-2 border-yellow-600 rounded-lg p-4 mb-4">
+              <p className="text-gray-900 font-semibold mb-3">
+                You are about to IMMEDIATELY RELEASE <span className="text-red-600 font-bold">{dmsMessages.length} protected message{dmsMessages.length !== 1 ? 's' : ''}</span> to their recipients.
+              </p>
+              
+              <div className="space-y-2 text-sm text-gray-800">
+                <div className="flex items-start">
+                  <X className="h-4 w-4 text-red-600 mr-2 mt-0.5 flex-shrink-0" />
+                  <span className="font-medium">CANNOT be undone</span>
+                </div>
+                <div className="flex items-start">
+                  <X className="h-4 w-4 text-red-600 mr-2 mt-0.5 flex-shrink-0" />
+                  <span className="font-medium">Will send ALL protected messages NOW</span>
+                </div>
+                <div className="flex items-start">
+                  <X className="h-4 w-4 text-red-600 mr-2 mt-0.5 flex-shrink-0" />
+                  <span className="font-medium">Bypasses the normal check-in deadline</span>
+                </div>
+              </div>
+            </div>
+            
+            <p className="text-center text-gray-900 font-bold mb-6">
+              Are you absolutely sure you want to proceed?
+            </p>
+            
+            <div className="flex space-x-3">
+              <Button 
+                onClick={() => setShowEmergencyConfirm(false)}
+                variant="outline"
+                className="flex-1 border-2 border-gray-400 hover:bg-gray-100 font-semibold"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={confirmEmergencyRelease}
+                className="flex-1 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-black font-bold border-2 border-black"
+              >
+                <AlertTriangle className="h-4 w-4 mr-2" />
+                Continue
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Emergency Release - Final Confirmation Dialog */}
+      {showFinalConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-gradient-to-br from-red-100 via-red-50 to-orange-100 border-4 border-red-600 rounded-lg shadow-2xl max-w-md w-full mx-4 p-6 animate-pulse">
+            <div className="flex items-center justify-center mb-4">
+              <div className="p-3 bg-red-600 rounded-full">
+                <AlertTriangle className="h-12 w-12 text-white" />
+              </div>
+            </div>
+            
+            <h2 className="text-2xl font-bold text-center text-red-900 mb-2">
+              FINAL CONFIRMATION
+            </h2>
+            
+            <div className="bg-white border-2 border-red-600 rounded-lg p-4 mb-4">
+              <p className="text-gray-900 font-bold text-center mb-3">
+                This is your LAST CHANCE to cancel.
+              </p>
+              
+              <div className="bg-red-100 border border-red-400 rounded p-3 mb-3">
+                <p className="text-red-900 font-bold text-center">
+                  {dmsMessages.length} MESSAGE{dmsMessages.length !== 1 ? 'S' : ''} WILL BE SENT NOW
+                </p>
+              </div>
+              
+              <p className="text-gray-800 text-sm text-center">
+                Recipients will receive their messages within moments of clicking "RELEASE NOW".
+              </p>
+            </div>
+            
+            <div className="flex space-x-3">
+              <Button 
+                onClick={() => setShowFinalConfirm(false)}
+                variant="outline"
+                className="flex-1 border-2 border-green-600 bg-green-50 hover:bg-green-100 text-green-900 font-bold"
+              >
+                <X className="h-4 w-4 mr-2" />
+                Cancel (Safe)
+              </Button>
+              <Button 
+                onClick={testDmsRelease}
+                className="flex-1 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold border-2 border-black shadow-lg"
+              >
+                <AlertTriangle className="h-4 w-4 mr-2" />
+                RELEASE NOW
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

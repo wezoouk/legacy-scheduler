@@ -15,7 +15,19 @@ import { toast } from "../../../hooks/use-toast";
 import { Edit, Trash2, Send, Clock, Mail, Video, Mic, FileText, Shield, TrendingUp, Copy, Eye, RefreshCw, HardDrive, Cloud, Play, Volume2 } from "lucide-react";
 import { format } from "date-fns";
 
-export function MessageList() {
+interface MessageListProps {
+  onCreateMessage?: () => void;
+}
+
+// Helper function to strip HTML tags and get plain text preview
+function getPlainTextPreview(html: string, maxLength: number = 100): string {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  const text = div.textContent || div.innerText || '';
+  return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+}
+
+export function MessageList({ onCreateMessage }: MessageListProps = {}) {
   const { messages, deleteMessage, updateMessage, createMessage, recipients, refreshMessages, isLoading } = useMessages();
   const { recipients: allRecipients } = useRecipients();
   const [editingMessage, setEditingMessage] = useState<any>(null);
@@ -105,14 +117,120 @@ export function MessageList() {
     return isLegacyId || hasUserInfo;
   };
 
-  const handleSendNow = (message: any) => {
-    if (confirm(`Are you sure you want to send "${message.title}" now?`)) {
+  const handleSendNow = async (message: any) => {
+    if (!confirm(`Are you sure you want to send "${message.title}" now? This will deliver the email immediately.`)) {
+      return;
+    }
+
+    try {
+      // Get recipients for this message
+      const messageRecipients = allRecipients.filter(recipient => 
+        message.recipientIds.includes(recipient.id)
+      );
+
+      if (messageRecipients.length === 0) {
+        toast({
+          title: "No Recipients",
+          description: "This message has no recipients to send to.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Prepare attachments for email
+      const attachments = [];
+      
+      // Add video attachment if present
+      if (message.cipherBlobUrl || message.videoRecording) {
+        const videoUrl = message.cipherBlobUrl || message.videoRecording;
+        attachments.push({
+          filename: 'video-message.mp4',
+          content: videoUrl,
+          contentType: 'video/mp4'
+        });
+      }
+      
+      // Add audio attachment if present
+      if (message.audioRecording) {
+        attachments.push({
+          filename: 'audio-message.mp3',
+          content: message.audioRecording,
+          contentType: 'audio/mpeg'
+        });
+      }
+      
+      // Add file attachments if present
+      if (message.attachments && message.attachments.length > 0) {
+        message.attachments.forEach((file: any) => {
+          attachments.push({
+            filename: file.name,
+            content: file.content || '',
+            contentType: file.type
+          });
+        });
+      }
+
+      // Send email to each recipient
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const recipient of messageRecipients) {
+        try {
+          const result = await EmailService.sendEmail({
+            messageId: message.id,
+            recipientEmail: recipient.email,
+            recipientName: recipient.name,
+            subject: message.title,
+            content: message.content,
+            attachments: attachments
+          });
+
+          if (result.success) {
+            successCount++;
+          } else {
+            errorCount++;
+          }
+        } catch (error) {
+          console.error('Error sending to recipient:', recipient.email, error);
+          errorCount++;
+        }
+      }
+
+      // Update message status
       const updatedMessage = {
         ...message,
         status: 'SENT',
-        sentAt: new Date().toISOString()
+        sentAt: new Date().toISOString(),
+        deliveryStatus: {
+          total: messageRecipients.length,
+          sent: successCount,
+          failed: errorCount,
+          lastSent: new Date().toISOString()
+        }
       };
-      updateMessage(message.id, updatedMessage);
+      
+      await updateMessage(message.id, updatedMessage);
+
+      // Show result toast
+      if (errorCount === 0) {
+        toast({
+          title: "Message Sent Successfully",
+          description: `Sent to ${successCount} recipient(s)`,
+        });
+      } else {
+        toast({
+          title: "Partial Send Failure",
+          description: `Sent to ${successCount} recipient(s), failed for ${errorCount}`,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      toast({
+        title: "Send Failed",
+        description: error instanceof Error ? error.message : "Failed to send message",
+        variant: "destructive",
+      });
     }
   };
 
@@ -255,15 +373,26 @@ export function MessageList() {
 
   if (messages.length === 0) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-12">
-          <Mail className="h-12 w-12 text-gray-400 mb-4" />
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">No messages yet</h3>
-          <p className="text-gray-500 text-center mb-6">
-            Create your first message to get started with Legacy Scheduler
+      <div className="flex flex-col items-center justify-center py-16 space-y-4">
+        <Mail className="h-16 w-16 text-muted-foreground/30" />
+        <div className="text-center space-y-2">
+          <h2 className="text-2xl font-bold text-muted-foreground">No Messages Created Yet</h2>
+          <p className="text-muted-foreground max-w-md">
+            Create your first message to schedule emails, videos, voice messages, or files for your loved ones.
           </p>
-        </CardContent>
-      </Card>
+        </div>
+        <Button 
+          onClick={() => {
+            if (onCreateMessage) {
+              onCreateMessage();
+            }
+          }}
+          className="mt-4"
+        >
+          <Mail className="h-4 w-4 mr-2" />
+          Create Your First Message
+        </Button>
+      </div>
     );
   }
 
@@ -330,8 +459,12 @@ export function MessageList() {
                         </div>
                       )}
                       <div className="flex items-center space-x-2 mt-1">
-                        <Badge className={`${getStatusColor(message.status)} text-xs px-1.5 py-0.5`}>
-                          {message.status}
+                        <Badge className={`${
+                          message.status === 'DRAFT' && message.scope === 'DMS' 
+                            ? 'bg-green-100 text-green-800' 
+                            : getStatusColor(message.status)
+                        } text-xs px-1.5 py-0.5`}>
+                          {message.status === 'DRAFT' && message.scope === 'DMS' ? 'ACTIVE' : message.status}
                         </Badge>
                         {message.scope === 'DMS' && (
                           <Badge className="bg-red-100 text-red-800 text-xs px-1.5 py-0.5">
@@ -348,6 +481,27 @@ export function MessageList() {
                           {message.recipientIds?.length || 0} recipients
                         </span>
                       </div>
+                      {/* Show status for Guardian Angel messages */}
+                      {message.scope === 'DMS' && message.status === 'DRAFT' && (
+                        <div className="mt-2 flex items-center space-x-2">
+                          <Badge className="bg-orange-100 text-orange-800 text-xs px-2 py-1">
+                            <Clock className="h-3 w-3 mr-1" />
+                            Monitoring Active
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            Check Guardian Angel page for details
+                          </span>
+                        </div>
+                      )}
+                      {/* Show OVERDUE warning if Guardian Angel check-in is missed */}
+                      {message.scope === 'DMS' && message.status === 'DRAFT' && message.dmsOverdue && (
+                        <div className="mt-2 p-3 bg-red-900 border border-red-700 rounded">
+                          <div className="flex items-center text-red-100 font-bold text-sm">
+                            <Shield className="h-4 w-4 mr-2" />
+                            ⚠️ CHECK-IN OVERDUE - MESSAGE WILL SEND SOON!
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center space-x-1">
@@ -464,7 +618,7 @@ export function MessageList() {
                     return null;
                   })()}
                   
-                  <p className="text-gray-600 line-clamp-2 text-xs leading-relaxed">{message.content}</p>
+                  <p className="text-gray-600 line-clamp-2 text-xs leading-relaxed">{getPlainTextPreview(message.content, 150)}</p>
                   
                   {/* Media Preview Section */}
                   {(message.cipherBlobUrl || message.audioRecording) && (
@@ -563,10 +717,11 @@ export function MessageList() {
                                 <Badge className={`text-xs px-1.5 py-0.5 ${
                                   message.status === 'SENT' ? 'bg-green-100 text-green-800' :
                                   message.status === 'SCHEDULED' ? 'bg-blue-100 text-blue-800' :
+                                  message.status === 'DRAFT' && message.scope === 'DMS' ? 'bg-green-100 text-green-800' :
                                   message.status === 'DRAFT' ? 'bg-gray-100 text-gray-800' :
                                   'bg-red-100 text-red-800'
                                 }`}>
-                                  {message.status}
+                                  {message.status === 'DRAFT' && message.scope === 'DMS' ? 'ACTIVE' : message.status}
                                 </Badge>
                         {message.scope === 'DMS' && (
                                   <Badge className="bg-red-100 text-red-800 text-xs px-1.5 py-0.5">

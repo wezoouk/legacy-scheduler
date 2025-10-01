@@ -19,6 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { useRecipients } from "@/lib/use-recipients";
 import { CalendarIcon, Video, Mic, Upload, X, Play, Pause, Trash2, Mail, FileText, Sparkles, Type, Shield, Eye } from "lucide-react";
 import { format } from "date-fns";
+import { DmsActivationDialog } from "./dms-activation-dialog";
 
 interface EditMessageDialogProps {
   message: any;
@@ -55,16 +56,28 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
 
   // Add missing state for DMS protection
   const [isDmsProtected, setIsDmsProtected] = useState(message?.scope === 'DMS' || false);
+  const [showDmsActivation, setShowDmsActivation] = useState(false);
 
-  // Initialize selectedTypes when message changes
+  // Initialize all fields when message changes
   useEffect(() => {
     if (message) {
+      setTitle(message.title || '');
+      setContent(message.content || '');
+      setSelectedRecipients(message.recipientIds || []);
+      setExistingVideoUrl(message.cipherBlobUrl || message.videoRecording || '');
+      setExistingAudioUrl(message.audioRecording || '');
+      setAttachments(message.attachments || []);
+      setIsDmsProtected(message.scope === 'DMS' || false);
+      
       const messageTypes = message.types || (message.type ? [message.type] : ['EMAIL']);
       setSelectedTypes(messageTypes);
       
       // Detect if content is HTML (rich text)
       const hasHtmlTags = /<[^>]*>/g.test(message.content || '');
       setUseRichText(hasHtmlTags && messageTypes.includes('EMAIL'));
+      
+      // Reset template flag
+      setIsUsingTemplate(false);
     }
   }, [message]);
   
@@ -275,81 +288,44 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
             />
           </div>
 
-          <div>
-            <Label>Message Types</Label>
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={selectedTypes.includes('EMAIL')}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedTypes([...selectedTypes, 'EMAIL']);
-                    } else {
-                      setSelectedTypes(selectedTypes.filter(t => t !== 'EMAIL'));
-                    }
-                  }}
-                  id="email"
-                />
-                <Label htmlFor="email" className="flex items-center space-x-2">
-                  <Mail className="h-4 w-4" />
-                  <span>Email</span>
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={selectedTypes.includes('VIDEO')}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedTypes([...selectedTypes, 'VIDEO']);
-                    } else {
-                      setSelectedTypes(selectedTypes.filter(t => t !== 'VIDEO'));
-                    }
-                  }}
-                  id="video"
-                />
-                <Label htmlFor="video" className="flex items-center space-x-2">
-                  <Video className="h-4 w-4" />
-                  <span>Video</span>
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={selectedTypes.includes('VOICE')}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedTypes([...selectedTypes, 'VOICE']);
-                    } else {
-                      setSelectedTypes(selectedTypes.filter(t => t !== 'VOICE'));
-                    }
-                  }}
-                  id="voice"
-                />
-                <Label htmlFor="voice" className="flex items-center space-x-2">
-                  <Mic className="h-4 w-4" />
-                  <span>Voice</span>
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={selectedTypes.includes('FILE')}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedTypes([...selectedTypes, 'FILE']);
-                    } else {
-                      setSelectedTypes(selectedTypes.filter(t => t !== 'FILE'));
-                    }
-                  }}
-                  id="file"
-                />
-                <Label htmlFor="file" className="flex items-center space-x-2">
-                  <FileText className="h-4 w-4" />
-                  <span>File</span>
-                </Label>
-              </div>
+          <div className="space-y-3">
+            <Label>Message Types (select multiple)</Label>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { id: 'EMAIL', icon: Mail, label: 'Email', description: 'Send via email' },
+                { id: 'VIDEO', icon: Video, label: 'Video', description: 'Record or attach video' },
+                { id: 'VOICE', icon: Mic, label: 'Voice', description: 'Record audio message' },
+                { id: 'FILE', icon: FileText, label: 'File', description: 'Attach documents or files' },
+              ].map((type) => {
+                const Icon = type.icon;
+                return (
+                  <div
+                    key={type.id}
+                    className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                      selectedTypes.includes(type.id)
+                        ? 'border-primary bg-primary/5'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                    onClick={() => {
+                      if (selectedTypes.includes(type.id)) {
+                        setSelectedTypes(selectedTypes.filter(t => t !== type.id));
+                      } else {
+                        setSelectedTypes([...selectedTypes, type.id]);
+                      }
+                    }}
+                  >
+                    <div className="flex items-start space-x-3">
+                      <Icon className="h-5 w-5 mt-0.5" />
+                      <div>
+                        <div className="font-medium">{type.label}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {type.description}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -384,11 +360,15 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    setUseRichText(!useRichText);
                     if (useRichText) {
-                      // If switching to plain text, we're no longer using template
+                      // If switching from rich text to plain text, strip HTML tags
+                      const div = document.createElement('div');
+                      div.innerHTML = content;
+                      const plainText = div.textContent || div.innerText || '';
+                      setContent(plainText);
                       setIsUsingTemplate(false);
                     }
+                    setUseRichText(!useRichText);
                   }}
                   disabled={isUsingTemplate && useRichText}
                   title={isUsingTemplate && useRichText ? "Cannot switch to plain text when using HTML template" : ""}
@@ -567,13 +547,13 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
             )}
           </div>
 
-          {/* DMS Protection */}
+          {/* Guardian Angel Protection */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <Label className="flex items-center">
                   <Shield className="h-4 w-4 mr-2 text-red-600" />
-                  Dead Man's Switch Protection
+                  Guardian Angel Protection
                 </Label>
                 <p className="text-sm text-muted-foreground">
                   This message will be automatically sent if you miss your regular check-ins
@@ -581,17 +561,28 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
               </div>
               <Switch
                 checked={isDmsProtected}
-                onCheckedChange={setIsDmsProtected}
+                onCheckedChange={(checked) => {
+                  setIsDmsProtected(checked);
+                  if (checked) {
+                    // Open activation dialog to configure DMS settings
+                    setShowDmsActivation(true);
+                  }
+                }}
               />
             </div>
             {isDmsProtected && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                <div className="flex items-center text-red-800 mb-1">
-                  <Shield className="h-4 w-4 mr-2" />
-                  <span className="font-medium text-sm">DMS Protected Message</span>
+              <div className="p-3 bg-red-900/20 border border-red-700/30 rounded-lg space-y-2">
+                <div className="flex items-center justify-between text-red-300">
+                  <div className="flex items-center">
+                    <Shield className="h-4 w-4 mr-2" />
+                    <span className="font-medium text-sm">Guardian Angel Protected Message</span>
+                  </div>
                 </div>
-                <p className="text-red-700 text-xs">
-                  This message will be sent automatically if you fail to check in according to your DMS configuration.
+                <p className="text-red-400 text-xs">
+                  This message will be sent automatically if you fail to check in according to your Guardian Angel configuration.
+                </p>
+                <p className="text-yellow-400 text-xs italic">
+                  ⚠️ To change Guardian Angel settings, go to the Guardian Angel page.
                 </p>
               </div>
             )}
@@ -701,6 +692,15 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
               : "Recipient"
           }
           senderName="Your Name"
+        />
+        
+        <DmsActivationDialog
+          open={showDmsActivation}
+          onOpenChange={setShowDmsActivation}
+          onActivate={async (config) => {
+            console.log('DMS config activated for edit:', config);
+            setIsDmsProtected(true);
+          }}
         />
       </DialogContent>
     </Dialog>

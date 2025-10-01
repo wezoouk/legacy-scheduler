@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { MessageList } from '@/components/dashboard/message-list';
 import { RecipientList } from '@/components/dashboard/recipient-list';
 import { ScheduledMessageList } from '@/components/dashboard/scheduled-messages';
@@ -17,13 +18,65 @@ import { EmailService } from '@/lib/email-service';
 import { Plus, User } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { Link } from 'react-router-dom';
+import { useMessages } from '@/lib/use-messages';
+import { supabase } from '@/lib/supabase';
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState('messages');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showMigrationDialog, setShowMigrationDialog] = useState(false);
   const { user } = useAuth();
+  const { messages, refreshMessages } = useMessages();
   const { isValid: emailConfigured } = EmailService.validateEmailConfiguration();
+  
+  // Count scheduled messages
+  const scheduledCount = messages.filter(m => m.status === 'SCHEDULED').length;
+  
+  // Count active Guardian Angel (DMS) messages
+  const dmsCount = messages.filter(m => m.scope === 'DMS' && m.status !== 'SENT').length;
+  
+  // Auto-check for overdue DMS messages every 30 seconds (runs on dashboard)
+  useEffect(() => {
+    const checkOverdueMessages = async () => {
+      if (!user || !supabase) return;
+      
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      
+      try {
+        console.log('🔄 Auto-checking for overdue Guardian Angel messages...');
+        const response = await fetch(
+          `${supabaseUrl}/functions/v1/process-scheduled-messages`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
+          }
+        );
+        
+        if (response.ok) {
+          console.log('✅ Auto-check completed, refreshing messages...');
+          // Refresh messages after check
+          await refreshMessages();
+        } else {
+          console.log('⚠️ Auto-check response:', response.status);
+        }
+      } catch (error) {
+        console.log('Background DMS check completed', error);
+      }
+    };
+    
+    // Check immediately on load
+    checkOverdueMessages();
+    
+    // Then check every 30 seconds
+    const interval = setInterval(checkOverdueMessages, 30000);
+    
+    return () => clearInterval(interval);
+  }, [user]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -70,14 +123,34 @@ export function Dashboard() {
           <TabsList className="grid w-full grid-cols-7">
             <TabsTrigger value="messages">Messages</TabsTrigger>
             <TabsTrigger value="recipients">Recipients</TabsTrigger>
-            <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
+            <TabsTrigger value="scheduled" className="relative">
+              Scheduled
+              {scheduledCount > 0 && (
+                <Badge 
+                  variant="destructive" 
+                  className="ml-2 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs"
+                >
+                  {scheduledCount}
+                </Badge>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="calendar">Calendar</TabsTrigger>
             <TabsTrigger value="recording">Recording</TabsTrigger>
-            <TabsTrigger value="dms">Guardian Angel</TabsTrigger>
+            <TabsTrigger value="dms" className="relative">
+              Guardian Angel
+              {dmsCount > 0 && (
+                <Badge 
+                  variant="destructive" 
+                  className="ml-2 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs"
+                >
+                  {dmsCount}
+                </Badge>
+              )}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="messages">
-            <MessageList />
+            <MessageList onCreateMessage={() => setShowCreateDialog(true)} />
           </TabsContent>
 
           <TabsContent value="recipients">
