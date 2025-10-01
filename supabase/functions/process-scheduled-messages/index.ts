@@ -1,7 +1,6 @@
 // Supabase Edge Function: process-scheduled-messages
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { encode as b64encode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -30,16 +29,6 @@ interface Recipient {
   name: string;
 }
 
-async function fetch_to_base64(url: string): Promise<{ base64: string; content_type: string; filename: string }> {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`)
-  const content_type = res.headers.get('content-type') || 'application/octet-stream'
-  const buf = new Uint8Array(await res.arrayBuffer())
-  const base64 = b64encode(buf)
-  const filename = url.split('/').pop()?.split('?')[0] || 'file'
-  return { base64, content_type, filename }
-}
-
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -47,33 +36,147 @@ serve(async (req) => {
   }
 
   try {
-    // Get auth header to determine which key to use
-    const authHeader = req.headers.get('Authorization')
-    const isServiceRole = authHeader?.includes('Bearer ') && Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    // Check for emergency release flag
+    const body = await req.json().catch(() => ({}))
+    const forceRelease = body?.emergency_release === true
     
-    // Create Supabase client with service role key (bypasses RLS) OR anon key for testing
+    // ALWAYS use service role key to bypass RLS for DMS processing
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    let supabaseKey: string
-    
-    if (isServiceRole) {
-      // Production: Use service role key (from cron jobs)
-      supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-      console.log('Using service role key (production mode)')
-    } else {
-      // Testing: Use anon key (from admin panel)
-      supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!
-      console.log('Using anon key (testing mode)')
-    }
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     
     if (!supabaseUrl || !supabaseKey) {
-      throw new Error('Missing Supabase configuration')
+      throw new Error('Missing Supabase configuration (URL or SERVICE_ROLE_KEY)')
     }
 
+    console.log('🔑 Using service role key for DMS processing (bypasses RLS)')
     const supabase = createClient(supabaseUrl, supabaseKey)
 
     const now = new Date().toISOString()
-    console.log(`📧 Processing scheduled messages due before ${now}`)
+    
+    if (forceRelease) {
+      console.log(`🚨 EMERGENCY RELEASE MODE - Forcing immediate release of ALL DMS messages`)
+    } else {
+      console.log(`📧 Processing scheduled messages and DMS cycles due before ${now}`)
+    }
 
+    // ========== STEP 1: Process DMS (Guardian Angel) Overdue Cycles ==========
+    console.log('🛡️ Checking for overdue Guardian Angel cycles...')
+    
+    const { data: dmsConfigs, error: dmsConfigError } = await supabase
+      .from('dms_configs')
+      .select('*')
+      .eq('status', 'ACTIVE')
+    
+    if (dmsConfigError) {
+      console.error('Error fetching DMS configs:', dmsConfigError)
+    } else {
+      console.log(`Found ${dmsConfigs?.length || 0} active DMS configs`)
+      
+      for (const config of dmsConfigs || []) {
+        // Get the current cycle for this config
+        const { data: cycles, error: cyclesError } = await supabase
+          .from('dms_cycles')
+          .select('*')
+          .eq('configId', config.id)
+          .order('nextCheckinAt', { ascending: false })
+          .limit(1)
+        
+        if (cyclesError || !cycles || cycles.length === 0) {
+          console.log(`No cycle found for config ${config.id}`)
+          continue
+        }
+        
+        const cycle = cycles[0]
+        const nextCheckin = new Date(cycle.nextCheckinAt)
+        const currentTime = new Date()
+        
+        // Calculate grace deadline based on unit
+        let graceMs = 0
+        switch (config.graceUnit) {
+          case 'minutes':
+            graceMs = config.graceDays * 60 * 1000
+            break
+          case 'hours':
+            graceMs = config.graceDays * 60 * 60 * 1000
+            break
+          case 'days':
+          default:
+            graceMs = config.graceDays * 24 * 60 * 60 * 1000
+            break
+        }
+        
+        const graceDeadline = new Date(nextCheckin.getTime() + graceMs)
+        
+        console.log(`DMS Config ${config.id}: Next check-in ${nextCheckin.toISOString()}, Grace deadline ${graceDeadline.toISOString()}, Current ${currentTime.toISOString()}`)
+        
+        // Check if we should release: either past deadline OR emergency release
+        const shouldRelease = (forceRelease && cycle.state !== 'PENDING_RELEASE') || 
+                             (currentTime > graceDeadline && cycle.state !== 'PENDING_RELEASE')
+        
+        if (shouldRelease) {
+          if (forceRelease) {
+            console.log(`🚨 EMERGENCY RELEASE: Forcing immediate release for config ${config.id}`)
+          } else {
+            console.log(`🚨 DMS ${config.id} is OVERDUE! Releasing protected messages...`)
+          }
+          
+          // Update cycle state to PENDING_RELEASE
+          await supabase
+            .from('dms_cycles')
+            .update({ state: 'PENDING_RELEASE', updatedAt: now })
+            .eq('id', cycle.id)
+          
+          // Find all DMS messages for this user and update them to SCHEDULED
+          const { data: dmsMessages, error: dmsMessagesError } = await supabase
+            .from('messages')
+            .select('*')
+            .eq('userId', config.userId)
+            .eq('scope', 'DMS')
+            .eq('status', 'DRAFT')
+          
+          if (dmsMessagesError) {
+            console.error(`Error fetching DMS messages for user ${config.userId}:`, dmsMessagesError)
+          } else {
+            console.log(`Found ${dmsMessages?.length || 0} DMS messages to release`)
+            
+            for (const dmsMsg of dmsMessages || []) {
+              const { error: updateError } = await supabase
+                .from('messages')
+                .update({
+                  status: 'SCHEDULED',
+                  scheduledFor: now,
+                  updatedAt: now
+                })
+                .eq('id', dmsMsg.id)
+              
+              if (updateError) {
+                console.error(`Error scheduling DMS message ${dmsMsg.id}:`, updateError)
+              } else {
+                console.log(`✅ DMS message "${dmsMsg.title}" scheduled for immediate sending`)
+              }
+            }
+            
+            // Deactivate the DMS config after releasing all messages
+            if (dmsMessages && dmsMessages.length > 0) {
+              console.log(`🛑 Deactivating Guardian Angel config ${config.id} after releasing ${dmsMessages.length} message(s)`)
+              await supabase
+                .from('dms_configs')
+                .update({
+                  status: 'INACTIVE',
+                  updatedAt: now
+                })
+                .eq('id', config.id)
+              
+              console.log(`✅ Guardian Angel deactivated - messages have been sent`)
+            }
+          }
+        }
+      }
+    }
+
+    // ========== STEP 2: Process Regular Scheduled Messages ==========
+    console.log('📧 Processing regular scheduled messages...')
+    
     // Get all scheduled messages that are due (bypasses RLS with service role)
     const { data: scheduledMessages, error: messagesError } = await supabase
       .from('messages')
@@ -111,7 +214,7 @@ serve(async (req) => {
         for (const recipient of recipients || []) {
           try {
             // Process email content with placeholders
-            let processedContent = message.content
+            const processedContent = message.content
               .replace(/\[Name\]/g, recipient.name || recipient.email)
               .replace(/\[Recipient Name\]/g, recipient.name || recipient.email)
               .replace(/\[Your Name\]/g, 'Legacy Scheduler')
@@ -121,143 +224,22 @@ serve(async (req) => {
               .replace(/\[Recipient Name\]/g, recipient.name || recipient.email)
               .replace(/\[Your Name\]/g, 'Legacy Scheduler')
 
-            // Generate viewer links for media
-            const appBaseUrl = Deno.env.get('APP_URL') || Deno.env.get('PUBLIC_APP_URL') || ''
-            const mediaUrlToViewer: Record<string, string> = {}
-
-            // Helper to create a link row and map viewer URL
-            const createViewerLink = async (
-              link_type: 'VIDEO' | 'VOICE' | 'FILE',
-              target_url: string,
-              thumbnail_url?: string
-            ) => {
-              if (!target_url || !/^https?:\/\//i.test(target_url)) return
-              try {
-                const token = crypto.randomUUID()
-                const { error: linkErr } = await supabase
-                  .from('message_links')
-                  .insert({
-                    message_id: message.id,
-                    recipient_id: recipient.id,
-                    link_type,
-                    target_url,
-                    thumbnail_url: thumbnail_url || null,
-                    view_token: token
-                  })
-                if (linkErr) {
-                  console.warn('Failed to insert message_link:', linkErr)
-                  return
-                }
-                const viewerUrl = appBaseUrl ? `${appBaseUrl}/view?token=${token}` : target_url
-                mediaUrlToViewer[target_url] = viewerUrl
-              } catch (e) {
-                console.warn('createViewerLink failed:', e)
-              }
-            }
-
-            // Video link
-            const videoUrl = message.cipherBlobUrl || message.videoRecording
-            if (videoUrl) {
-              await createViewerLink('VIDEO', videoUrl, message.thumbnailUrl || undefined)
-            }
-
-            // Audio link (only if URL; data URIs will be attached below instead)
-            if (message.audioRecording && /^https?:\/\//i.test(message.audioRecording)) {
-              await createViewerLink('VOICE', message.audioRecording)
-            }
-
-            // File links from attachments metadata
-            let filesMetaForLinks: any[] = []
-            try {
-              if (typeof message.attachments === 'string') {
-                filesMetaForLinks = JSON.parse(message.attachments)
-              } else if (Array.isArray(message.attachments)) {
-                filesMetaForLinks = message.attachments
-              }
-            } catch (_) {
-              filesMetaForLinks = []
-            }
-            for (const f of filesMetaForLinks) {
-              if (f?.url) {
-                await createViewerLink('FILE', f.url)
-              }
-            }
-
-            // Rewrite content URLs to viewer URLs when available
-            if (Object.keys(mediaUrlToViewer).length > 0) {
-              for (const [originalUrl, viewerUrl] of Object.entries(mediaUrlToViewer)) {
-                processedContent = processedContent.split(originalUrl).join(viewerUrl)
-              }
-            }
-
-            // If video exists and no viewer link in content, append CTA
-            if (videoUrl) {
-              const viewerForVideo = mediaUrlToViewer[videoUrl]
-              if (viewerForVideo && !processedContent.includes(viewerForVideo)) {
-                processedContent += `\n\n<a href="${viewerForVideo}" target="_blank" rel="noopener noreferrer">🎬 Watch the video in your secure viewer</a>`
-              }
-            }
-
-            // Prepare attachments (small audio/files only). Videos remain as links.
-            const attachments: Array<{ filename: string; content: string; contentType?: string }> = []
+            // Prepare attachments
+            const attachments = []
             
-            // Audio attachment
+            // Add audio attachment if present
             if (message.audioRecording) {
-              try {
-                if (message.audioRecording.startsWith('data:')) {
-                  const header = message.audioRecording.slice(5, message.audioRecording.indexOf(','))
-                  const base64 = message.audioRecording.split(',')[1] || ''
-                  const ct = header.split(';')[0] || 'audio/mpeg'
-                  attachments.push({
-                    filename: 'audio-message' + (ct.includes('webm') ? '.webm' : ct.includes('wav') ? '.wav' : '.mp3'),
-                    content: base64,
-                    contentType: ct
-                  })
-                } else if (/^https?:\/\//i.test(message.audioRecording)) {
-                  const { base64, content_type, filename } = await fetch_to_base64(message.audioRecording)
-                  attachments.push({
-                    filename: filename || 'audio-message',
-                    content: base64,
-                    contentType: content_type
-                  })
-                }
-              } catch (e) {
-                console.warn('Skipping audio attachment, fetch/parse failed:', e)
-              }
-            }
-
-            // File attachments (from metadata with url)
-            let filesMeta: any[] = []
-            try {
-              if (typeof message.attachments === 'string') {
-                filesMeta = JSON.parse(message.attachments)
-              } else if (Array.isArray(message.attachments)) {
-                filesMeta = message.attachments
-              }
-            } catch (_) {
-              filesMeta = []
-            }
-
-            for (const f of filesMeta) {
-              if (!f?.url) continue
-              try {
-                const { base64, content_type } = await fetch_to_base64(f.url)
-                // Optional size guard could be added here if needed
-                attachments.push({
-                  filename: f.name || 'attachment',
-                  content: base64,
-                  contentType: f.type || content_type || 'application/octet-stream'
-                })
-              } catch (e) {
-                console.warn('Skipping file attachment (fetch failed):', f?.name, e)
-              }
+              attachments.push({
+                filename: 'audio-message.mp3',
+                content: `Audio recording: ${message.audioRecording}`,
+                contentType: 'text/plain'
+              })
             }
 
             // Call send-email function
             const emailResponse = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
               method: 'POST',
               headers: {
-                // Use the same key chosen above (service role in prod, anon in test)
                 'Authorization': `Bearer ${supabaseKey}`,
                 'Content-Type': 'application/json',
               },
@@ -275,8 +257,7 @@ serve(async (req) => {
             if (emailResponse.ok) {
               console.log(`✅ Email sent to ${recipient.email}`)
             } else {
-              const errorText = await emailResponse.text()
-              console.error(`❌ Failed to send email to ${recipient.email} [${emailResponse.status}]: ${errorText}`)
+              console.error(`❌ Failed to send email to ${recipient.email}`)
               errorCount++
             }
 
