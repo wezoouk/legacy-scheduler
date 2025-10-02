@@ -82,14 +82,120 @@ export function ScheduledMessageList() {
     return isLegacyId || hasUserInfo;
   };
 
-  const handleSendNow = (message: any) => {
-    if (confirm(`Are you sure you want to send "${message.title}" now?`)) {
+  const handleSendNow = async (message: any) => {
+    if (!confirm(`Are you sure you want to send "${message.title}" now? This will deliver the email immediately.`)) {
+      return;
+    }
+
+    try {
+      // Get recipients for this message
+      const messageRecipients = recipients.filter(recipient => 
+        message.recipientIds.includes(recipient.id)
+      );
+
+      if (messageRecipients.length === 0) {
+        toast({
+          title: "No Recipients",
+          description: "This message has no recipients to send to.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Prepare attachments for email
+      const attachments = [];
+      
+      // Add video attachment if present
+      if (message.cipherBlobUrl || message.videoRecording) {
+        const videoUrl = message.cipherBlobUrl || message.videoRecording;
+        attachments.push({
+          filename: 'video-message.mp4',
+          content: videoUrl,
+          contentType: 'video/mp4'
+        });
+      }
+      
+      // Add audio attachment if present
+      if (message.audioRecording) {
+        attachments.push({
+          filename: 'audio-message.mp3',
+          content: message.audioRecording,
+          contentType: 'audio/mpeg'
+        });
+      }
+      
+      // Add file attachments if present
+      if (message.attachments && message.attachments.length > 0) {
+        message.attachments.forEach((file: any) => {
+          attachments.push({
+            filename: file.name,
+            content: file.content || '',
+            contentType: file.type
+          });
+        });
+      }
+
+      // Send email to each recipient
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const recipient of messageRecipients) {
+        try {
+          const result = await EmailService.sendEmail({
+            messageId: message.id,
+            recipientEmail: recipient.email,
+            recipientName: recipient.name,
+            subject: message.title,
+            content: message.content,
+            attachments: attachments
+          });
+
+          if (result.success) {
+            successCount++;
+          } else {
+            errorCount++;
+          }
+        } catch (error) {
+          console.error('Error sending to recipient:', recipient.email, error);
+          errorCount++;
+        }
+      }
+
+      // Update message status
       const updatedMessage = {
         ...message,
         status: 'SENT',
-        sentAt: new Date().toISOString()
+        sentAt: new Date().toISOString(),
+        deliveryStatus: {
+          total: messageRecipients.length,
+          sent: successCount,
+          failed: errorCount,
+          lastSent: new Date().toISOString()
+        }
       };
-      updateMessage(message.id, updatedMessage);
+      
+      await updateMessage(message.id, updatedMessage);
+
+      // Show result toast
+      if (errorCount === 0) {
+        toast({
+          title: "Message Sent Successfully",
+          description: `Sent to ${successCount} recipient(s)`,
+        });
+      } else {
+        toast({
+          title: "Partial Send Failure",
+          description: `Sent to ${successCount} recipient(s), failed for ${errorCount}`,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      toast({
+        title: "Send Failed",
+        description: error instanceof Error ? error.message : "Failed to send message",
+        variant: "destructive",
+      });
     }
   };
 

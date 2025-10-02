@@ -19,6 +19,9 @@ export interface Message {
   scope?: 'NORMAL' | 'DMS';
   cipherBlobUrl?: string;
   thumbnailUrl?: string;
+  // Guardian Angel status
+  dmsOverdue?: boolean;
+  dmsNextCheckin?: Date;
   // Legacy fields for localStorage compatibility
   videoRecording?: string;
   audioRecording?: string;
@@ -202,8 +205,69 @@ export function useMessages() {
         attachments: msg.attachments ? JSON.parse(msg.attachments) : undefined,
       }));
 
-      console.log(`Loaded ${formattedMessages.length} messages from database`);
-      setMessages(formattedMessages);
+      // Check DMS status for Guardian Angel protected messages
+      const messagesWithDmsStatus = await Promise.all(
+        formattedMessages.map(async (msg) => {
+          if (msg.scope === 'DMS' && msg.status === 'DRAFT') {
+            try {
+              // Get active DMS config for this user
+              const { data: configs } = await supabase
+                .from('dms_configs')
+                .select('*')
+                .eq('userId', msg.userId)
+                .eq('status', 'ACTIVE')
+                .limit(1);
+
+              if (configs && configs.length > 0) {
+                const config = configs[0];
+                
+                // Get the latest cycle for this config
+                const { data: cycles } = await supabase
+                  .from('dms_cycles')
+                  .select('*')
+                  .eq('configId', config.id)
+                  .order('nextCheckinAt', { ascending: false })
+                  .limit(1);
+
+                if (cycles && cycles.length > 0) {
+                  const cycle = cycles[0];
+                  const nextCheckin = new Date(cycle.nextCheckinAt);
+                  
+                  // Calculate grace deadline
+                  let graceMs = 0;
+                  switch (config.graceUnit) {
+                    case 'minutes':
+                      graceMs = config.graceDays * 60 * 1000;
+                      break;
+                    case 'hours':
+                      graceMs = config.graceDays * 60 * 60 * 1000;
+                      break;
+                    case 'days':
+                    default:
+                      graceMs = config.graceDays * 24 * 60 * 60 * 1000;
+                      break;
+                  }
+                  
+                  const graceDeadline = new Date(nextCheckin.getTime() + graceMs);
+                  const now = new Date();
+                  
+                  return {
+                    ...msg,
+                    dmsOverdue: now > graceDeadline,
+                    dmsNextCheckin: nextCheckin,
+                  };
+                }
+              }
+            } catch (error) {
+              console.error('Error checking DMS status:', error);
+            }
+          }
+          return msg;
+        })
+      );
+
+      console.log(`Loaded ${messagesWithDmsStatus.length} messages from database`);
+      setMessages(messagesWithDmsStatus);
     } catch (error) {
       console.error('Error loading from database:', error);
       throw error;

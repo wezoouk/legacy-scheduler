@@ -1,0 +1,5 @@
+[33m217cf6b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Update DMS Edge Function for automatic Guardian Angel message sending
+[33m678ede4[m Backup and push: landing starfield, drifting icons/phrases, pricing clouds, UX tweaks
+[33m3be89da[m Backup and push: UI, media, email sender settings, recipients fix
+[33m45839b2[m merge: backup/20250927-220511 into main
+[33m3a5d41d[m[33m ([m[1;31morigin/backup/20250927-220511[m[33m, [m[1;32mbackup/20250927-220511[m[33m)[m feat: dashboard media improvements; add Files row; password reset; remove demo login; add FileSelectionDialog; bugfixes

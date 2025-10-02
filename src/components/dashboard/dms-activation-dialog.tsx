@@ -19,8 +19,10 @@ const reminderSchema = z.object({
 });
 
 const dmsActivationSchema = z.object({
-  frequencyDays: z.number().min(1, "Must be at least 1 day").max(365, "Cannot exceed 365 days"),
-  graceDays: z.number().min(0, "Cannot be negative").max(30, "Cannot exceed 30 days"),
+  frequencyDays: z.number().min(1, "Must be at least 1").max(365, "Cannot exceed 365"),
+  frequencyUnit: z.enum(['minutes','hours','days']).default('days'),
+  graceDays: z.number().min(0, "Cannot be negative").max(30, "Cannot exceed 30"),
+  graceUnit: z.enum(['minutes','hours','days']).default('days'),
   durationDays: z.number().min(1, "Must be at least 1 day").max(365, "Cannot exceed 365 days"),
   checkInReminderHours: z.number().min(1, "Must be at least 1 hour").max(168, "Cannot exceed 7 days"),
   channels: z.object({
@@ -37,9 +39,10 @@ interface DmsActivationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onActivate: (config: DmsActivationForm) => void;
+  initialConfig?: Partial<DmsActivationForm>;
 }
 
-export function DmsActivationDialog({ open, onOpenChange, onActivate }: DmsActivationDialogProps) {
+export function DmsActivationDialog({ open, onOpenChange, onActivate, initialConfig }: DmsActivationDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authorReminders, setAuthorReminders] = useState<Array<{
     id: string;
@@ -58,7 +61,9 @@ export function DmsActivationDialog({ open, onOpenChange, onActivate }: DmsActiv
     resolver: zodResolver(dmsActivationSchema),
     defaultValues: {
       frequencyDays: 7,
+      frequencyUnit: 'days',
       graceDays: 3,
+      graceUnit: 'days',
       durationDays: 30,
       checkInReminderHours: 24,
       channels: {
@@ -70,6 +75,17 @@ export function DmsActivationDialog({ open, onOpenChange, onActivate }: DmsActiv
   });
 
   const watchedChannels = watch('channels');
+  // Preload when editing
+  if (initialConfig) {
+    const ic = initialConfig as any;
+    if (ic.frequencyDays) setValue('frequencyDays', ic.frequencyDays);
+    if (ic.frequencyUnit) setValue('frequencyUnit', ic.frequencyUnit);
+    if (ic.graceDays !== undefined) setValue('graceDays', ic.graceDays);
+    if (ic.graceUnit) setValue('graceUnit', ic.graceUnit);
+    if (ic.durationDays) setValue('durationDays', ic.durationDays);
+    if (ic.checkInReminderHours) setValue('checkInReminderHours', ic.checkInReminderHours);
+    if (ic.channels) setValue('channels', ic.channels);
+  }
 
   const addReminder = () => {
     const newReminder = {
@@ -108,7 +124,9 @@ export function DmsActivationDialog({ open, onOpenChange, onActivate }: DmsActiv
   };
 
   const frequencyDays = watch('frequencyDays');
+  const frequencyUnit = watch('frequencyUnit');
   const graceDays = watch('graceDays');
+  const graceUnit = watch('graceUnit');
   const durationDays = watch('durationDays');
 
   return (
@@ -129,15 +147,26 @@ export function DmsActivationDialog({ open, onOpenChange, onActivate }: DmsActiv
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label htmlFor="frequencyDays" className="text-sm">Check-in Every</Label>
-              <Input
-                id="frequencyDays"
-                type="number"
-                min="1"
-                max="365"
-                className="h-8 text-sm"
-                {...register("frequencyDays", { valueAsNumber: true })}
-              />
-              <p className="text-xs text-muted-foreground">days</p>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="frequencyDays"
+                  type="number"
+                  min="1"
+                  max="365"
+                  className="h-8 text-sm w-24"
+                  {...register("frequencyDays", { valueAsNumber: true })}
+                />
+                <Select value={frequencyUnit} onValueChange={(v)=>setValue('frequencyUnit', v as any)}>
+                  <SelectTrigger className="h-8 text-sm w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="minutes">minutes</SelectItem>
+                    <SelectItem value="hours">hours</SelectItem>
+                    <SelectItem value="days">days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               {errors.frequencyDays && (
                 <p className="text-xs text-destructive">{errors.frequencyDays.message}</p>
               )}
@@ -145,15 +174,26 @@ export function DmsActivationDialog({ open, onOpenChange, onActivate }: DmsActiv
 
             <div className="space-y-1">
               <Label htmlFor="graceDays" className="text-sm">Grace Period</Label>
-              <Input
-                id="graceDays"
-                type="number"
-                min="0"
-                max="30"
-                className="h-8 text-sm"
-                {...register("graceDays", { valueAsNumber: true })}
-              />
-              <p className="text-xs text-muted-foreground">days</p>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="graceDays"
+                  type="number"
+                  min="0"
+                  max="30"
+                  className="h-8 text-sm w-24"
+                  {...register("graceDays", { valueAsNumber: true })}
+                />
+                <Select value={graceUnit} onValueChange={(v)=>setValue('graceUnit', v as any)}>
+                  <SelectTrigger className="h-8 text-sm w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="minutes">minutes</SelectItem>
+                    <SelectItem value="hours">hours</SelectItem>
+                    <SelectItem value="days">days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               {errors.graceDays && (
                 <p className="text-xs text-destructive">{errors.graceDays.message}</p>
               )}
@@ -307,8 +347,8 @@ export function DmsActivationDialog({ open, onOpenChange, onActivate }: DmsActiv
               <span className="text-sm font-medium text-blue-300">Guardian Angel Summary</span>
             </div>
             <div className="text-xs text-blue-400 space-y-1">
-              <p>• Check in every <Badge variant="outline" className="text-xs bg-blue-800/30 border-blue-600 text-blue-300">{frequencyDays} days</Badge></p>
-              <p>• <Badge variant="outline" className="text-xs bg-blue-800/30 border-blue-600 text-blue-300">{graceDays} days</Badge> grace period after missed check-in</p>
+              <p>• Check in every <Badge variant="outline" className="text-xs bg-blue-800/30 border-blue-600 text-blue-300">{frequencyDays} {frequencyUnit}</Badge></p>
+              <p>• <Badge variant="outline" className="text-xs bg-blue-800/30 border-blue-600 text-blue-300">{graceDays} {graceUnit}</Badge> grace period after missed check-in</p>
               <p>• DMS active for <Badge variant="outline" className="text-xs bg-blue-800/30 border-blue-600 text-blue-300">{durationDays} days</Badge></p>
               <p>• Reminder <Badge variant="outline" className="text-xs bg-blue-800/30 border-blue-600 text-blue-300">{watch('checkInReminderHours')} hours</Badge> before check-in</p>
             </div>

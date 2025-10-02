@@ -33,12 +33,15 @@ import { DmsActivationDialog } from "@/components/dashboard/dms-activation-dialo
 import { CreateRecipientDialog } from "@/components/dashboard/create-recipient-dialog";
 import { FileSelectionDialog } from "@/components/dashboard/file-selection-dialog";
 import { type EmailTemplate } from "@/lib/email-templates";
+import { DmsService } from "@/lib/dms-service";
+import { useAuth } from "@/lib/auth-context";
+import { toast } from "../../../hooks/use-toast";
 import { 
   Mail, 
   Video, 
   Mic, 
   FileText, 
-  Calendar as CalendarIcon, 
+  Calendar as CalendarIcon,
   Users,
   Shield,
   Play,
@@ -49,7 +52,9 @@ import {
   Type,
   Eye,
   Plus,
-  X
+  X,
+  CheckCircle2,
+  AlertCircle
 } from "lucide-react";
 
 const messageSchema = z.object({
@@ -87,6 +92,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
   const [selectedAudioUrl, setSelectedAudioUrl] = useState<string | null>(null);
   const [selectedAudioTitle, setSelectedAudioTitle] = useState<string>('');
   const [isFileSelectionOpen, setIsFileSelectionOpen] = useState(false);
+  const { user } = useAuth();
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -771,29 +777,36 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
               </div>
               <Switch
                 checked={isDmsProtected}
-                onCheckedChange={setIsDmsProtected}
+                onCheckedChange={(checked) => {
+                  setIsDmsProtected(checked);
+                  if (checked) {
+                    // Automatically open activation dialog when toggled ON
+                    setShowDmsActivation(true);
+                  }
+                }}
               />
             </div>
             {isDmsProtected && (
-              <div className="p-3 bg-blue-900/20 border border-blue-700/30 rounded-lg">
-                <div className="flex items-center justify-between text-blue-300 mb-1">
+              <div className="p-3 bg-red-900/20 border border-red-700/30 rounded-lg space-y-2">
+                <div className="flex items-center justify-between text-red-300">
                   <div className="flex items-center">
                     <Shield className="h-4 w-4 mr-2" />
                     <span className="font-medium text-sm">Guardian Angel Protected Message</span>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowDmsActivation(true)}
-                    className="text-xs h-6 px-2 bg-yellow-500 hover:bg-yellow-600 text-black border-yellow-500 hover:border-yellow-600"
-                  >
-                    Configure Guardian Angel
-                  </Button>
                 </div>
-                <p className="text-blue-400 text-xs">
+                <p className="text-red-400 text-xs">
                   This message will be sent automatically if you fail to check in according to your Guardian Angel configuration.
                 </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowDmsActivation(true)}
+                  className="w-full bg-yellow-500 hover:bg-yellow-600 text-black border-yellow-500 hover:border-yellow-600 font-semibold"
+                >
+                  <Shield className="h-4 w-4 mr-2" />
+                  Activate Guardian Angel
+                </Button>
               </div>
             )}
           </div>
@@ -1086,28 +1099,71 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
         <DmsActivationDialog
           open={showDmsActivation}
           onOpenChange={setShowDmsActivation}
-          onActivate={(config) => {
-            // Save DMS configuration to localStorage
-            const dmsConfig = {
-              id: `dms-${Date.now()}`,
-              ...config,
-              status: 'ACTIVE' as const,
-              startDate: new Date(),
-              endDate: new Date(Date.now() + config.durationDays * 24 * 60 * 60 * 1000),
-            };
-            localStorage.setItem('dms-config', JSON.stringify(dmsConfig));
+          onActivate={async (config) => {
+            // Persist DMS configuration to Supabase and create cycle
+            if (!user) { 
+              console.warn('No authenticated user; cannot activate DMS'); 
+              alert('Please log in to activate Guardian Angel');
+              return; 
+            }
             
-            // Create initial cycle
-            const nextCheckin = new Date(Date.now() + config.frequencyDays * 24 * 60 * 60 * 1000);
-            const cycleData = {
-              id: `cycle-${dmsConfig.id}`,
-              nextCheckinAt: nextCheckin,
-              state: 'ACTIVE' as const,
-              reminders: [1, 3, 7],
-            };
-            localStorage.setItem('dms-cycle', JSON.stringify(cycleData));
-            
-            console.log('DMS activated with config:', dmsConfig);
+            try {
+              const freqUnit = (config as any).frequencyUnit || 'days';
+              const graceUnit = (config as any).graceUnit || 'days';
+              const mult = freqUnit === 'minutes' ? 60*1000 : freqUnit === 'hours' ? 60*60*1000 : 24*60*60*1000;
+              const next = new Date(Date.now() + (config.frequencyDays || 7) * mult);
+              
+              // Use camelCase for database columns
+              const saved = await DmsService.upsertConfig({
+                userId: user.id, // camelCase
+                frequencyDays: config.frequencyDays,
+                frequencyUnit: freqUnit, // camelCase
+                graceDays: config.graceDays,
+                graceUnit: graceUnit, // camelCase
+                durationDays: config.durationDays,
+                checkInReminderHours: config.checkInReminderHours,
+                channels: config.channels,
+                status: 'ACTIVE',
+                startDate: new Date().toISOString(), // camelCase
+                endDate: new Date(Date.now() + (config.durationDays || 30) * 24 * 60 * 60 * 1000).toISOString(), // camelCase
+                nextCheckin: next.toISOString(), // camelCase
+              } as any);
+              
+              if (saved) {
+                await DmsService.upsertCycle({
+                  configId: saved.id, // camelCase
+                  userId: user.id, // camelCase
+                  nextCheckinAt: next.toISOString(), // camelCase
+                  state: 'ACTIVE',
+                  reminders: [1,3,7],
+                  checkInReminderSent: false, // camelCase
+                } as any);
+                
+                console.log('✅ Guardian Angel activated successfully!', saved);
+                toast({
+                  title: (
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      <span>Guardian Angel Activated!</span>
+                    </div>
+                  ),
+                  description: `Check in every ${config.frequencyDays} ${freqUnit}.`,
+                  className: "bg-green-50 border-green-200",
+                });
+              }
+            } catch (error) {
+              console.error('Error activating Guardian Angel:', error);
+              toast({
+                title: (
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-5 w-5 text-red-600" />
+                    <span>Activation Failed</span>
+                  </div>
+                ),
+                description: "Failed to activate Guardian Angel. Please check the console for details.",
+                variant: "destructive",
+              });
+            }
           }}
         />
         
