@@ -51,9 +51,10 @@ export function Dashboard() {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${supabaseKey}`,
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
+              'Origin': window.location.origin
             },
-            body: JSON.stringify({})
+            body: JSON.stringify({ emergency_release: false })
           }
         );
         
@@ -62,7 +63,8 @@ export function Dashboard() {
           // Refresh messages after check
           await refreshMessages();
         } else {
-          console.log('⚠️ Auto-check response:', response.status);
+          const errorText = await response.text();
+          console.log('⚠️ Auto-check response:', response.status, errorText);
         }
       } catch (error) {
         console.log('Background DMS check completed', error);

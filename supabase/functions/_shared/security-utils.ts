@@ -13,15 +13,35 @@ export const securityHeaders = {
 
 /**
  * Get CORS headers with configurable origin
+ * Supports multiple origins separated by commas
  */
-export function getCorsHeaders(allowedOrigin?: string): Record<string, string> {
-  const origin = allowedOrigin || Deno.env.get('ALLOWED_ORIGIN') || '*';
+export function getCorsHeaders(requestOrigin?: string): Record<string, string> {
+  const allowedOriginsEnv = Deno.env.get('ALLOWED_ORIGIN') || '*';
+  
+  // If wildcard, allow all
+  if (allowedOriginsEnv === '*') {
+    return {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Max-Age': '86400',
+    };
+  }
+  
+  // Parse comma-separated origins
+  const allowedOrigins = allowedOriginsEnv.split(',').map(o => o.trim());
+  
+  // Check if request origin is in allowed list
+  const origin = requestOrigin && allowedOrigins.includes(requestOrigin) 
+    ? requestOrigin 
+    : allowedOrigins[0]; // Default to first allowed origin
   
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Max-Age': '86400',
+    'Access-Control-Allow-Credentials': 'true',
   };
 }
 

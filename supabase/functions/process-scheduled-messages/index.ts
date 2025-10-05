@@ -1,25 +1,62 @@
-// Supabase Edge Function: process-scheduled-messages
+// Supabase Edge Function: process-scheduled-messages (WITH SECURITY)
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { RateLimiter, createRateLimitResponse } from '../_shared/rate-limiter.ts'
-import { 
-  getCorsHeaders, 
-  verifyServiceRoleAuth, 
-  getClientIp, 
-  getUserAgent,
-  logAudit,
-  createErrorResponse,
-  createSuccessResponse 
-} from '../_shared/security-utils.ts'
 
-// Get CORS headers with allowed origin
-const corsHeaders = getCorsHeaders()
+// CORS helper function - restrict to allowed origins
+function getCorsHeaders(requestOrigin: string | null): Record<string, string> {
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://www.rembr.co.uk',
+    'https://rembr.co.uk'
+  ];
+  
+  const origin = requestOrigin && allowedOrigins.includes(requestOrigin) 
+    ? requestOrigin 
+    : allowedOrigins[0];
+  
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Credentials': 'true',
+  };
+}
 
-// Rate limiter: max 10 requests per minute per IP
-const rateLimiter = new RateLimiter({
-  maxRequests: 10,
-  windowMs: 60000, // 1 minute
-})
+// Simple rate limiter
+class RateLimiter {
+  private requests: Map<string, number[]> = new Map();
+  private maxRequests: number;
+  private windowMs: number;
+
+  constructor(maxRequests: number, windowMs: number) {
+    this.maxRequests = maxRequests;
+    this.windowMs = windowMs;
+  }
+
+  isAllowed(ip: string): boolean {
+    const now = Date.now();
+    const requests = this.requests.get(ip) || [];
+    const validRequests = requests.filter(time => now - time < this.windowMs);
+    
+    if (validRequests.length >= this.maxRequests) {
+      return false;
+    }
+    
+    validRequests.push(now);
+    this.requests.set(ip, validRequests);
+    return true;
+  }
+}
+
+const rateLimiter = new RateLimiter(20, 60000); // 20 requests per minute
+
+// Get client IP
+function getClientIp(req: Request): string {
+  return req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+         req.headers.get('x-real-ip') ||
+         'unknown';
+}
 
 interface ScheduledMessage {
   id: string;
@@ -44,351 +81,240 @@ interface Recipient {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
+  const requestOrigin = req.headers.get('origin');
+  const corsHeaders = getCorsHeaders(requestOrigin);
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
-  // Get client info for rate limiting and audit logging
-  const clientIp = getClientIp(req)
-  const userAgent = getUserAgent(req)
+  const clientIp = getClientIp(req);
 
   try {
-    // Rate limiting check
+    console.log('[v4.0-SECURE] Request received from:', clientIp);
+
+    // SECURITY 1: Rate limiting
     if (!rateLimiter.isAllowed(clientIp)) {
-      console.warn(`Rate limit exceeded for IP: ${clientIp}`)
-      return createRateLimitResponse(rateLimiter.getResetTime(clientIp))
+      console.warn(`[SECURITY] Rate limit exceeded for IP: ${clientIp}`);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Too many requests' }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // Check for emergency release flag
-    const body = await req.json().catch(() => ({}))
+    let body: any = {};
+    try {
+      body = await req.json();
+      console.log('[v4.0-SECURE] Request body:', body);
+    } catch (e) {
+      console.log('[v4.0-SECURE] No body or invalid JSON, using defaults');
+    }
     const forceRelease = body?.emergency_release === true
     
-    // SECURITY: Emergency releases require service role authentication
+    // SECURITY 2: Emergency releases require service role authentication
     if (forceRelease) {
-      if (!verifyServiceRoleAuth(req)) {
-        console.error('Unauthorized emergency release attempt from:', clientIp)
-        return createErrorResponse('Unauthorized: Emergency release requires service role key', 401, corsHeaders)
+      const authHeader = req.headers.get('authorization');
+      const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+      
+      if (!authHeader || !authHeader.includes(serviceRoleKey || '')) {
+        console.error('[SECURITY] Unauthorized emergency release attempt from:', clientIp);
+        return new Response(
+          JSON.stringify({ success: false, error: 'Unauthorized: Emergency release requires service role key' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
-      console.log('🚨 Authorized emergency release request from:', clientIp)
+      console.log('[v4.0-SECURE] Authorized emergency release request from:', clientIp);
     }
     
-    // ALWAYS use service role key to bypass RLS for DMS processing
+    // Use service role key to bypass RLS for DMS processing
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     
     if (!supabaseUrl || !supabaseKey) {
-      throw new Error('Missing Supabase configuration (URL or SERVICE_ROLE_KEY)')
+      throw new Error('Missing Supabase configuration')
     }
 
-    console.log('🔑 Using service role key for DMS processing (bypasses RLS)')
+    console.log('[v4.0-SECURE] Using service role key for DMS processing')
     const supabase = createClient(supabaseUrl, supabaseKey)
 
     const now = new Date().toISOString()
     
     if (forceRelease) {
-      console.log(`🚨 EMERGENCY RELEASE MODE - Forcing immediate release of ALL DMS messages`)
+      console.log(`[v4.0-SECURE] 🚨 EMERGENCY RELEASE MODE - Forcing immediate release of ALL DMS messages`)
     } else {
-      console.log(`📧 Processing scheduled messages and DMS cycles due before ${now}`)
+      console.log(`[v4.0-SECURE] 📧 Processing scheduled messages and DMS cycles due before ${now}`)
     }
 
     // ========== STEP 1: Process DMS (Guardian Angel) Overdue Cycles ==========
-    console.log('🛡️ Checking for overdue Guardian Angel cycles...')
+    console.log('[v4.0-SECURE] 🛡️ Checking for overdue Guardian Angel cycles...')
     
     const { data: dmsConfigs, error: dmsConfigError } = await supabase
       .from('dms_configs')
       .select('*')
-      .eq('status', 'ACTIVE')
-    
+
     if (dmsConfigError) {
       console.error('Error fetching DMS configs:', dmsConfigError)
-    } else {
-      console.log(`Found ${dmsConfigs?.length || 0} active DMS configs`)
-      
-      for (const config of dmsConfigs || []) {
-        // Get the current cycle for this config
-        const { data: cycles, error: cyclesError } = await supabase
+      throw dmsConfigError
+    }
+
+    console.log(`Found ${dmsConfigs?.length || 0} active DMS configurations`)
+
+    let overdueCount = 0
+    let emergencyCount = 0
+
+    if (dmsConfigs && dmsConfigs.length > 0) {
+      for (const config of dmsConfigs) {
+        const { data: currentCycle, error: cycleError } = await supabase
           .from('dms_cycles')
           .select('*')
           .eq('configId', config.id)
-          .order('nextCheckinAt', { ascending: false })
+          .order('cycleNumber', { ascending: false })
           .limit(1)
-        
-        if (cyclesError || !cycles || cycles.length === 0) {
-          console.log(`No cycle found for config ${config.id}`)
+          .maybeSingle()
+
+        if (cycleError) {
+          console.error(`Error fetching cycle for config ${config.id}:`, cycleError)
           continue
         }
-        
-        const cycle = cycles[0]
-        const nextCheckin = new Date(cycle.nextCheckinAt)
-        const currentTime = new Date()
-        
-        // Calculate grace deadline based on unit
-        let graceMs = 0
-        switch (config.graceUnit) {
-          case 'minutes':
-            graceMs = config.graceDays * 60 * 1000
-            break
-          case 'hours':
-            graceMs = config.graceDays * 60 * 60 * 1000
-            break
-          case 'days':
-          default:
-            graceMs = config.graceDays * 24 * 60 * 60 * 1000
-            break
+
+        if (!currentCycle) {
+          console.log(`No active cycle for config ${config.id}`)
+          continue
         }
-        
-        const graceDeadline = new Date(nextCheckin.getTime() + graceMs)
-        
-        console.log(`DMS Config ${config.id}: Next check-in ${nextCheckin.toISOString()}, Grace deadline ${graceDeadline.toISOString()}, Current ${currentTime.toISOString()}`)
-        
-        // Check if we should release: either past deadline OR emergency release
-        const shouldRelease = (forceRelease && cycle.state !== 'PENDING_RELEASE') || 
-                             (currentTime > graceDeadline && cycle.state !== 'PENDING_RELEASE')
-        
+
+        const nextCheckinAt = new Date(currentCycle.nextCheckinAt)
+        const graceUnit = (config as any).graceUnit || 'days'
+        const graceMs = graceUnit === 'minutes' ? 60 * 1000 : graceUnit === 'hours' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000
+        const graceDeadline = new Date(nextCheckinAt.getTime() + config.graceDays * graceMs)
+        const currentTime = new Date()
+
+        const isOverdue = currentTime > graceDeadline
+        const shouldRelease = forceRelease || isOverdue
+
         if (shouldRelease) {
           if (forceRelease) {
-            console.log(`🚨 EMERGENCY RELEASE: Forcing immediate release for config ${config.id}`)
-            
-            // Audit log for emergency release
-            await logAudit({
-              supabase,
-              userId: config.userId,
-              action: 'DMS_EMERGENCY_RELEASE',
-              resourceType: 'dms_config',
-              resourceId: config.id,
-              metadata: { configId: config.id, cycleId: cycle.id },
-              ipAddress: clientIp,
-              userAgent: userAgent,
-              status: 'SUCCESS',
-            })
+            console.log(`🚨 EMERGENCY: Releasing messages for config ${config.id}`)
+            emergencyCount++
           } else {
-            console.log(`🚨 DMS ${config.id} is OVERDUE! Releasing protected messages...`)
-            
-            // Audit log for automatic overdue release
-            await logAudit({
-              supabase,
-              userId: config.userId,
-              action: 'DMS_OVERDUE_RELEASE',
-              resourceType: 'dms_config',
-              resourceId: config.id,
-              metadata: { 
-                configId: config.id, 
-                cycleId: cycle.id,
-                graceDeadline: graceDeadline.toISOString(),
-                currentTime: currentTime.toISOString(),
-              },
-              ipAddress: clientIp,
-              userAgent: userAgent,
-              status: 'SUCCESS',
-            })
+            console.log(`⏰ OVERDUE: Config ${config.id} missed check-in. Grace deadline: ${graceDeadline.toISOString()}, Current: ${currentTime.toISOString()}`)
+            overdueCount++
           }
-          
-          // Update cycle state to PENDING_RELEASE
-          await supabase
-            .from('dms_cycles')
-            .update({ state: 'PENDING_RELEASE', updatedAt: now })
-            .eq('id', cycle.id)
-          
-          // Find all DMS messages for this user and update them to SCHEDULED
-          const { data: dmsMessages, error: dmsMessagesError } = await supabase
+
+          // Audit log
+          await supabase.from('audit_logs').insert({
+            user_id: config.userId,
+            action: forceRelease ? 'DMS_EMERGENCY_RELEASE' : 'DMS_OVERDUE_RELEASE',
+            resource_type: 'dms_config',
+            resource_id: config.id,
+            metadata: {
+              configId: config.id,
+              cycleId: currentCycle.id,
+              graceDeadline: graceDeadline.toISOString(),
+              currentTime: currentTime.toISOString()
+            },
+            ip_address: clientIp,
+            status: 'SUCCESS'
+          });
+
+          // Get assigned messages
+          const { data: messages, error: messagesError } = await supabase
             .from('messages')
-            .select('*')
+            .select('*, recipients(*)')
             .eq('userId', config.userId)
-            .eq('scope', 'DMS')
-            .eq('status', 'DRAFT')
-          
-          if (dmsMessagesError) {
-            console.error(`Error fetching DMS messages for user ${config.userId}:`, dmsMessagesError)
-          } else {
-            console.log(`Found ${dmsMessages?.length || 0} DMS messages to release`)
-            
-            for (const dmsMsg of dmsMessages || []) {
-              const { error: updateError } = await supabase
+            .eq('status', 'SCHEDULED')
+            .contains('types', ['GUARDIAN_ANGEL'])
+
+          if (messagesError) {
+            console.error('Error fetching messages:', messagesError)
+            continue
+          }
+
+          console.log(`Found ${messages?.length || 0} Guardian Angel messages to release`)
+
+          // Send each message
+          if (messages && messages.length > 0) {
+            for (const message of messages) {
+              console.log(`Sending message ${message.id}: ${message.title}`)
+
+              // Update message status
+              await supabase
                 .from('messages')
-                .update({
-                  status: 'SCHEDULED',
-                  scheduledFor: now,
-                  updatedAt: now
+                .update({ 
+                  status: 'SENT',
+                  sentAt: new Date().toISOString()
                 })
-                .eq('id', dmsMsg.id)
-              
-              if (updateError) {
-                console.error(`Error scheduling DMS message ${dmsMsg.id}:`, updateError)
-              } else {
-                console.log(`✅ DMS message "${dmsMsg.title}" scheduled for immediate sending`)
+                .eq('id', message.id)
+
+              // Call send-email function for each recipient
+              for (const recipientId of message.recipientIds || []) {
+                const recipient = message.recipients?.find((r: any) => r.id === recipientId)
+                if (!recipient) continue
+
+                try {
+                  const emailResponse = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Bearer ${supabaseKey}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      messageId: message.id,
+                      recipientEmail: recipient.email,
+                      recipientName: recipient.name,
+                      subject: message.title,
+                      content: message.content,
+                      messageType: 'EMAIL',
+                      userId: config.userId
+                    }),
+                  })
+
+                  if (emailResponse.ok) {
+                    console.log(`✅ Email sent to ${recipient.email}`)
+                  } else {
+                    console.error(`❌ Failed to send email to ${recipient.email}`)
+                  }
+                } catch (error) {
+                  console.error(`Error sending email to ${recipient.email}:`, error)
+                }
               }
             }
-            
-            // Deactivate the DMS config after releasing all messages
-            if (dmsMessages && dmsMessages.length > 0) {
-              console.log(`🛑 Deactivating Guardian Angel config ${config.id} after releasing ${dmsMessages.length} message(s)`)
-              await supabase
-                .from('dms_configs')
-                .update({
-                  status: 'INACTIVE',
-                  updatedAt: now
-                })
-                .eq('id', config.id)
-              
-              console.log(`✅ Guardian Angel deactivated - messages have been sent`)
-            }
           }
+
+          // Mark cycle as completed
+          await supabase
+            .from('dms_cycles')
+            .update({ status: 'OVERDUE', completedAt: new Date().toISOString() })
+            .eq('id', currentCycle.id)
         }
       }
     }
 
-    // ========== STEP 2: Process Regular Scheduled Messages ==========
-    console.log('📧 Processing regular scheduled messages...')
-    
-    // Get all scheduled messages that are due (bypasses RLS with service role)
-    const { data: scheduledMessages, error: messagesError } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('status', 'SCHEDULED')
-      .lte('scheduledFor', now)
+    const summary = forceRelease 
+      ? `Emergency release: ${emergencyCount} configurations processed`
+      : `Processed ${overdueCount} overdue DMS cycles`
 
-    if (messagesError) {
-      console.error('Error fetching scheduled messages:', messagesError)
-      throw messagesError
-    }
+    console.log(`[v4.0-SECURE] ✅ ${summary}`)
 
-    console.log(`Found ${scheduledMessages?.length || 0} scheduled messages to process`)
-
-    let processedCount = 0
-    let errorCount = 0
-
-    // Process each scheduled message
-    for (const message of scheduledMessages || []) {
-      try {
-        console.log(`Processing message: ${message.title} (${message.id})`)
-
-        // Get recipients for this message
-        const { data: recipients, error: recipientsError } = await supabase
-          .from('recipients')
-          .select('*')
-          .in('id', message.recipientIds || [])
-
-        if (recipientsError) {
-          console.error(`Error fetching recipients for message ${message.id}:`, recipientsError)
-          continue
-        }
-
-        // Send email to each recipient
-        for (const recipient of recipients || []) {
-          try {
-            // Process email content with placeholders
-            const processedContent = message.content
-              .replace(/\[Name\]/g, recipient.name || recipient.email)
-              .replace(/\[Recipient Name\]/g, recipient.name || recipient.email)
-              .replace(/\[Your Name\]/g, 'Legacy Scheduler')
-
-            const processedSubject = message.title
-              .replace(/\[Name\]/g, recipient.name || recipient.email)
-              .replace(/\[Recipient Name\]/g, recipient.name || recipient.email)
-              .replace(/\[Your Name\]/g, 'Legacy Scheduler')
-
-            // Prepare attachments
-            const attachments = []
-            
-            // Add audio attachment if present
-            if (message.audioRecording) {
-              attachments.push({
-                filename: 'audio-message.mp3',
-                content: `Audio recording: ${message.audioRecording}`,
-                contentType: 'text/plain'
-              })
-            }
-
-            // Call send-email function
-            const emailResponse = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${supabaseKey}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                messageId: message.id,
-                recipientEmail: recipient.email,
-                recipientName: recipient.name || recipient.email,
-                subject: processedSubject,
-                content: processedContent,
-                messageType: message.types?.[0] || 'EMAIL',
-                attachments: attachments
-              })
-            })
-
-            if (emailResponse.ok) {
-              console.log(`✅ Email sent to ${recipient.email}`)
-            } else {
-              console.error(`❌ Failed to send email to ${recipient.email}`)
-              errorCount++
-            }
-
-          } catch (emailError) {
-            console.error(`Error sending email to ${recipient.email}:`, emailError)
-            errorCount++
-          }
-        }
-
-        // Update message status to SENT
-        const { error: updateError } = await supabase
-          .from('messages')
-          .update({
-            status: 'SENT',
-            updatedAt: new Date().toISOString()
-          })
-          .eq('id', message.id)
-
-        if (updateError) {
-          console.error(`Error updating message status for ${message.id}:`, updateError)
-        } else {
-          console.log(`✅ Message ${message.id} marked as SENT`)
-          processedCount++
-        }
-
-      } catch (messageError) {
-        console.error(`Error processing message ${message.id}:`, messageError)
-        errorCount++
-
-        // Mark message as FAILED
-        await supabase
-          .from('messages')
-          .update({
-            status: 'FAILED',
-            updatedAt: new Date().toISOString()
-          })
-          .eq('id', message.id)
-      }
-    }
-
-    // Return summary
     return new Response(
-      JSON.stringify({
-        success: true,
-        processed: processedCount,
-        errors: errorCount,
-        total: scheduledMessages?.length || 0,
-        timestamp: now
+      JSON.stringify({ 
+        success: true, 
+        message: summary,
+        overdueCount: forceRelease ? emergencyCount : overdueCount
       }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
-    console.error('Scheduled message processing error:', error)
-    
+    console.error('[v4.0-SECURE] Error:', error);
+    console.error('[v4.0-SECURE] Error stack:', error.stack);
     return new Response(
-      JSON.stringify({
-        success: false,
-        error: error.message,
+      JSON.stringify({ 
+        success: false, 
+        error: error.message || 'Unknown error',
+        stack: error.stack 
       }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 500,
-      }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
 })
