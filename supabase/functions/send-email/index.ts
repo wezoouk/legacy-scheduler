@@ -137,7 +137,7 @@ serve(async (req) => {
       })
     };
 
-    console.log('Sending email via Resend:', { from: resendFrom, to: recipientEmail });
+    console.log('Sending email via Resend:', { from: fromHeader, to: recipientEmail });
 
     // Send email via Resend API
     const resendResponse = await fetch('https://api.resend.com/emails', {
