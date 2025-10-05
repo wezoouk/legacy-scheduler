@@ -169,7 +169,7 @@ serve(async (req) => {
           .from('dms_cycles')
           .select('*')
           .eq('configId', config.id)
-          .order('cycleNumber', { ascending: false })
+          .order('updatedAt', { ascending: false })
           .limit(1)
           .maybeSingle()
 
@@ -217,39 +217,62 @@ serve(async (req) => {
             status: 'SUCCESS'
           });
 
-          // Get assigned messages
+          // Get assigned messages (DMS messages are identified by scope='DMS')
+          console.log(`[DEBUG] Looking for messages with userId: ${config.userId}, scope: DMS`);
+          
           const { data: messages, error: messagesError } = await supabase
             .from('messages')
-            .select('*, recipients(*)')
+            .select('*')
             .eq('userId', config.userId)
-            .eq('status', 'SCHEDULED')
-            .contains('types', ['GUARDIAN_ANGEL'])
+            .eq('scope', 'DMS')
+            .neq('status', 'SENT')
 
           if (messagesError) {
             console.error('Error fetching messages:', messagesError)
             continue
           }
 
-          console.log(`Found ${messages?.length || 0} Guardian Angel messages to release`)
+          console.log(`[DEBUG] Found ${messages?.length || 0} Guardian Angel messages to release`);
+          if (messages && messages.length > 0) {
+            console.log(`[DEBUG] Message IDs:`, messages.map(m => m.id));
+            console.log(`[DEBUG] Message statuses:`, messages.map(m => m.status));
+            console.log(`[DEBUG] Message types:`, messages.map(m => m.types));
+            console.log(`[DEBUG] Message recipientIds:`, messages.map(m => m.recipientIds));
+          }
 
           // Send each message
           if (messages && messages.length > 0) {
             for (const message of messages) {
               console.log(`Sending message ${message.id}: ${message.title}`)
 
-              // Update message status
-              await supabase
+              // Update message status (only status, no sentAt column exists)
+              const { error: updateError } = await supabase
                 .from('messages')
                 .update({ 
                   status: 'SENT',
-                  sentAt: new Date().toISOString()
+                  updatedAt: new Date().toISOString()
                 })
                 .eq('id', message.id)
+              
+              if (updateError) {
+                console.error(`Error updating message ${message.id} status:`, updateError)
+              } else {
+                console.log(`✅ Message ${message.id} marked as SENT`)
+              }
 
               // Call send-email function for each recipient
               for (const recipientId of message.recipientIds || []) {
-                const recipient = message.recipients?.find((r: any) => r.id === recipientId)
-                if (!recipient) continue
+                // Fetch recipient separately (no FK relationship)
+                const { data: recipient, error: recipientError } = await supabase
+                  .from('recipients')
+                  .select('*')
+                  .eq('id', recipientId)
+                  .maybeSingle()
+                
+                if (recipientError || !recipient) {
+                  console.error(`Error fetching recipient ${recipientId}:`, recipientError)
+                  continue
+                }
 
                 try {
                   const emailResponse = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
@@ -272,7 +295,8 @@ serve(async (req) => {
                   if (emailResponse.ok) {
                     console.log(`✅ Email sent to ${recipient.email}`)
                   } else {
-                    console.error(`❌ Failed to send email to ${recipient.email}`)
+                    const errorText = await emailResponse.text()
+                    console.error(`❌ Failed to send email to ${recipient.email}: ${errorText}`)
                   }
                 } catch (error) {
                   console.error(`Error sending email to ${recipient.email}:`, error)
