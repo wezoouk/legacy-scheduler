@@ -166,6 +166,15 @@ export class EmailService {
             return undefined;
           }
         })(),
+        // SECURITY: Include userId for recipient validation
+        userId: (() => {
+          try {
+            const user = JSON.parse(localStorage.getItem('legacyScheduler_user') || '{}');
+            return user?.id;
+          } catch {
+            return undefined;
+          }
+        })(),
         subject: processedSubject,
         content: processedContent
       };

@@ -1,11 +1,25 @@
 // Supabase Edge Function: process-scheduled-messages
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { RateLimiter, createRateLimitResponse } from '../_shared/rate-limiter.ts'
+import { 
+  getCorsHeaders, 
+  verifyServiceRoleAuth, 
+  getClientIp, 
+  getUserAgent,
+  logAudit,
+  createErrorResponse,
+  createSuccessResponse 
+} from '../_shared/security-utils.ts'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+// Get CORS headers with allowed origin
+const corsHeaders = getCorsHeaders()
+
+// Rate limiter: max 10 requests per minute per IP
+const rateLimiter = new RateLimiter({
+  maxRequests: 10,
+  windowMs: 60000, // 1 minute
+})
 
 interface ScheduledMessage {
   id: string;
@@ -35,10 +49,29 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  // Get client info for rate limiting and audit logging
+  const clientIp = getClientIp(req)
+  const userAgent = getUserAgent(req)
+
   try {
+    // Rate limiting check
+    if (!rateLimiter.isAllowed(clientIp)) {
+      console.warn(`Rate limit exceeded for IP: ${clientIp}`)
+      return createRateLimitResponse(rateLimiter.getResetTime(clientIp))
+    }
+
     // Check for emergency release flag
     const body = await req.json().catch(() => ({}))
     const forceRelease = body?.emergency_release === true
+    
+    // SECURITY: Emergency releases require service role authentication
+    if (forceRelease) {
+      if (!verifyServiceRoleAuth(req)) {
+        console.error('Unauthorized emergency release attempt from:', clientIp)
+        return createErrorResponse('Unauthorized: Emergency release requires service role key', 401, corsHeaders)
+      }
+      console.log('🚨 Authorized emergency release request from:', clientIp)
+    }
     
     // ALWAYS use service role key to bypass RLS for DMS processing
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -116,8 +149,39 @@ serve(async (req) => {
         if (shouldRelease) {
           if (forceRelease) {
             console.log(`🚨 EMERGENCY RELEASE: Forcing immediate release for config ${config.id}`)
+            
+            // Audit log for emergency release
+            await logAudit({
+              supabase,
+              userId: config.userId,
+              action: 'DMS_EMERGENCY_RELEASE',
+              resourceType: 'dms_config',
+              resourceId: config.id,
+              metadata: { configId: config.id, cycleId: cycle.id },
+              ipAddress: clientIp,
+              userAgent: userAgent,
+              status: 'SUCCESS',
+            })
           } else {
             console.log(`🚨 DMS ${config.id} is OVERDUE! Releasing protected messages...`)
+            
+            // Audit log for automatic overdue release
+            await logAudit({
+              supabase,
+              userId: config.userId,
+              action: 'DMS_OVERDUE_RELEASE',
+              resourceType: 'dms_config',
+              resourceId: config.id,
+              metadata: { 
+                configId: config.id, 
+                cycleId: cycle.id,
+                graceDeadline: graceDeadline.toISOString(),
+                currentTime: currentTime.toISOString(),
+              },
+              ipAddress: clientIp,
+              userAgent: userAgent,
+              status: 'SUCCESS',
+            })
           }
           
           // Update cycle state to PENDING_RELEASE
