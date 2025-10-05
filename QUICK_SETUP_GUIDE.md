@@ -1,79 +1,153 @@
-# ✅ Quick Setup Guide - Guardian Angel Automation
+# ⚡ Quick Setup Guide - Security Deployment
 
-## What We Just Did:
-✅ Deployed updated Edge Function with automatic DMS processing
-✅ Edge Function now detects overdue Guardian Angel cycles and releases messages
+## ✅ What's Already Done
 
-## What You Need to Do Now (2 minutes):
+1. ✅ **Edge Functions Deployed** with security hardening
+   - `process-scheduled-messages` - ✅ Deployed
+   - `send-email` - ✅ Deployed
 
-### Step 1: Get Your Service Role Key
-1. Go to: https://supabase.com/dashboard/project/cvhanylywsdeblhebicj/settings/api
-2. Scroll to **Project API keys**
-3. Find **`service_role`** (secret) key
-4. Click **Copy** (it's a very long string starting with `eyJ...`)
-
-### Step 2: Add GitHub Secrets
-1. Go to your GitHub repository
-2. Click **Settings** → **Secrets and variables** → **Actions**
-3. Click **"New repository secret"**
-
-**Add Secret #1:**
-- Name: `SUPABASE_URL`
-- Value: `https://cvhanylywsdeblhebicj.supabase.co`
-- Click "Add secret"
-
-**Add Secret #2:**
-- Name: `SUPABASE_SERVICE_ROLE_KEY`  
-- Value: [Paste the service_role key from Step 1]
-- Click "Add secret"
-
-### Step 3: Test It!
-
-**Option A: Manual Trigger (Immediate)**
-1. Go to **Actions** tab in GitHub
-2. Click **"Process Scheduled Messages"** workflow
-3. Click **"Run workflow"** → **"Run workflow"**
-4. Wait 30 seconds, check the run logs
-
-**Option B: Wait 1 Minute**
-- The cron job runs every minute automatically
-- It will detect your overdue DMS and release the messages
+2. ✅ **Security Features Active**
+   - Rate limiting (10-20 req/min)
+   - Authentication for emergency releases
+   - Input sanitization (XSS protection)
+   - Recipient validation
 
 ---
 
-## What Happens After Setup:
+## 🚨 CRITICAL: Complete These 3 Steps Now
 
-### Automatic DMS Release:
-1. ⏰ Every **1 minute**, GitHub Actions triggers the Edge Function
-2. 🛡️ Edge Function checks all **active Guardian Angel configs**
-3. 🕒 Calculates grace deadline (check-in time + grace period)
-4. 🚨 If overdue, it **automatically updates messages to SCHEDULED**
-5. 📧 Sends the emails to all recipients
-6. ✅ Updates message status to **SENT**
+### Step 1: Apply Audit Logs Table (2 minutes)
 
-### Your Two DMS Messages:
-- Once you set up the secrets, **within 1 minute** both overdue DMS messages will be:
-  - ✅ Updated to `SCHEDULED` status
-  - ✅ Sent to recipients
-  - ✅ Status changed to `SENT`
+1. Go to **Supabase Dashboard** → **SQL Editor**
+2. Open the file: `RUN_IN_SUPABASE_SQL_EDITOR.sql`
+3. Copy all contents
+4. Paste into SQL Editor
+5. Click **RUN**
+
+**Expected output:** "Audit logs table created successfully!"
 
 ---
 
-## Current Settings:
-- **Cron Schedule**: Every 1 minute (`*/1 * * * *`)
-- **DMS Check**: Automatic every run
-- **Grace Unit**: Minutes (for testing)
+### Step 2: Set ALLOWED_ORIGIN (1 minute)
 
-### After Testing (Optional):
-Change to every 5 minutes to save GitHub Actions quota:
-```yaml
-# In .github/workflows/scheduled-messages.yml
-schedule:
-  - cron: '*/5 * * * *'  # Every 5 minutes
+**Option A: Using Supabase Dashboard (Easiest)**
+
+1. Go to **Supabase Dashboard** → **Project Settings** → **Edge Functions**
+2. Scroll to **Secrets**
+3. Click **"Add secret"**
+4. Name: `ALLOWED_ORIGIN`
+5. Value: `https://yourdomain.com` (or `*` for development)
+6. Click **Save**
+
+**Option B: Using CLI**
+
+```bash
+npx supabase secrets set ALLOWED_ORIGIN=https://yourdomain.com --project-ref cvhanylywsdeblhebicj
+```
+
+**For development/testing, use:**
+```bash
+npx supabase secrets set ALLOWED_ORIGIN=* --project-ref cvhanylywsdeblhebicj
 ```
 
 ---
 
-## ✨ That's It!
-No more manual SQL scripts needed. Guardian Angel will work automatically! 🎉
+### Step 3: Verify GitHub Secrets (1 minute)
 
+1. Go to your GitHub repository
+2. Click **Settings** → **Secrets and variables** → **Actions**
+3. Verify these exist:
+   - ✅ `SUPABASE_URL`
+   - ✅ `SUPABASE_SERVICE_ROLE_KEY`
+
+If missing, add them from your Supabase Dashboard → Project Settings → API.
+
+---
+
+## 🧪 Test Your Security (Optional but Recommended)
+
+### Test 1: Check Edge Functions are Live
+
+```bash
+# Should return a response (not 404)
+curl https://cvhanylywsdeblhebicj.supabase.co/functions/v1/process-scheduled-messages
+```
+
+### Test 2: Verify Audit Logs Table
+
+In Supabase SQL Editor:
+```sql
+SELECT * FROM audit_logs LIMIT 1;
+```
+
+Should return empty result (no errors).
+
+### Test 3: Check Rate Limiting (Advanced)
+
+```bash
+# Send 11 requests rapidly
+for ($i=1; $i -le 11; $i++) {
+  curl -X POST "https://cvhanylywsdeblhebicj.supabase.co/functions/v1/process-scheduled-messages" `
+    -H "Authorization: Bearer YOUR_ANON_KEY" `
+    -H "Content-Type: application/json" `
+    -d '{}'
+  Write-Host "Request $i"
+}
+```
+
+Request 11 should return `429 Too Many Requests`.
+
+---
+
+## 📊 What's Protected Now
+
+✅ **Emergency Releases** - Only GitHub Actions can trigger  
+✅ **Rate Limiting** - 10-20 requests per minute per IP  
+✅ **XSS Protection** - All HTML content sanitized  
+✅ **Recipient Validation** - Only authorized recipients  
+✅ **Audit Trail** - All actions logged (once table is created)  
+✅ **CORS Protection** - Once ALLOWED_ORIGIN is set  
+
+---
+
+## 🎯 Summary
+
+**Completed:**
+- ✅ Edge Functions deployed with security
+- ✅ Rate limiting active
+- ✅ Authentication active
+- ✅ Input sanitization active
+- ✅ Recipient validation active
+
+**Remaining (3 steps, ~4 minutes):**
+- [ ] Apply audit logs SQL (Step 1)
+- [ ] Set ALLOWED_ORIGIN (Step 2)
+- [ ] Verify GitHub secrets (Step 3)
+
+---
+
+## 🆘 Need Help?
+
+**If Edge Function errors:**
+```bash
+# Check logs
+npx supabase functions logs process-scheduled-messages --project-ref cvhanylywsdeblhebicj
+```
+
+**If CORS issues:**
+- Make sure `ALLOWED_ORIGIN` is set correctly
+- Include `https://` prefix
+- No trailing slash
+
+**If audit logs fail:**
+- Run the SQL in `RUN_IN_SUPABASE_SQL_EDITOR.sql`
+- Check for error messages in SQL Editor
+
+---
+
+## 🎉 You're Almost Done!
+
+Just complete the 3 steps above and your system will be **fully secured** and **production-ready**!
+
+**Total time:** ~5 minutes  
+**Security level:** Enterprise-grade 🛡️
