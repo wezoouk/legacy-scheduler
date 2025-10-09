@@ -120,21 +120,39 @@ export class EmailService {
       throw new Error('Supabase configuration missing');
     }
 
-    const response = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    const url = `${supabaseUrl}/functions/v1/${functionName}`;
+    console.log('🔗 Calling edge function:', url);
+    console.log('📦 Payload:', { ...payload, content: '[REDACTED]' });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Edge function error: ${response.status} - ${errorText}`);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+          'Origin': window.location.origin,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      console.log('📡 Response status:', response.status);
+      console.log('📡 Response ok:', response.ok);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Edge function error response:', errorText);
+        throw new Error(`Edge function error: ${response.status} - ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Edge function result:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ Edge function call failed:', error);
+      console.error('❌ Error type:', error instanceof TypeError ? 'TypeError' : typeof error);
+      console.error('❌ Error message:', error instanceof Error ? error.message : String(error));
+      throw error;
     }
-
-    return response.json();
   }
 
   static async sendEmail(request: SendEmailRequest): Promise<EmailDeliveryResult> {

@@ -7,6 +7,8 @@ function getCorsHeaders(requestOrigin: string | null): Record<string, string> {
   const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
+    'http://localhost:5175',
+    'http://localhost:5176',
     'https://www.rembr.co.uk',
     'https://rembr.co.uk'
   ];
@@ -314,9 +316,91 @@ serve(async (req) => {
       }
     }
 
+    // ========== STEP 2: Process Regular Scheduled Messages ==========
+    console.log('[v4.0-SECURE] 📧 Checking for regular scheduled messages...')
+    
+    const { data: scheduledMessages, error: scheduledError } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('status', 'SCHEDULED')
+      .lte('scheduledFor', now)
+    
+    let scheduledCount = 0
+    
+    if (scheduledError) {
+      console.error('Error fetching scheduled messages:', scheduledError)
+    } else if (scheduledMessages && scheduledMessages.length > 0) {
+      console.log(`Found ${scheduledMessages.length} scheduled messages ready to send`)
+      
+      for (const message of scheduledMessages) {
+        console.log(`Processing scheduled message ${message.id}: ${message.title}`)
+        
+        // Update message status to SENT
+        const { error: updateError } = await supabase
+          .from('messages')
+          .update({ 
+            status: 'SENT',
+            updatedAt: new Date().toISOString()
+          })
+          .eq('id', message.id)
+        
+        if (updateError) {
+          console.error(`Error updating message ${message.id} status:`, updateError)
+          continue
+        }
+        
+        console.log(`✅ Message ${message.id} marked as SENT`)
+        
+        // Send emails to all recipients
+        for (const recipientId of message.recipientIds || []) {
+          const { data: recipient, error: recipientError } = await supabase
+            .from('recipients')
+            .select('*')
+            .eq('id', recipientId)
+            .maybeSingle()
+          
+          if (recipientError || !recipient) {
+            console.error(`Error fetching recipient ${recipientId}:`, recipientError)
+            continue
+          }
+          
+          try {
+            const emailResponse = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${supabaseKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                messageId: message.id,
+                recipientEmail: recipient.email,
+                recipientName: recipient.name,
+                subject: message.title,
+                content: message.content,
+                messageType: (message.types && message.types.length > 0) ? message.types[0] : 'EMAIL',
+                userId: message.userId
+              }),
+            })
+            
+            if (emailResponse.ok) {
+              console.log(`✅ Email sent to ${recipient.email}`)
+              scheduledCount++
+            } else {
+              const errorText = await emailResponse.text()
+              console.error(`❌ Failed to send email to ${recipient.email}: ${errorText}`)
+            }
+          } catch (error) {
+            console.error(`Error sending email to ${recipient.email}:`, error)
+          }
+        }
+      }
+    } else {
+      console.log('No scheduled messages ready to send')
+    }
+
     const summary = forceRelease 
       ? `Emergency release: ${emergencyCount} configurations processed`
-      : `Processed ${overdueCount} overdue DMS cycles`
+      : `Processed ${overdueCount} overdue DMS cycles, ${scheduledCount} scheduled emails sent`
 
     console.log(`[v4.0-SECURE] ✅ ${summary}`)
 
@@ -324,7 +408,8 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         message: summary,
-        overdueCount: forceRelease ? emergencyCount : overdueCount
+        overdueCount: forceRelease ? emergencyCount : overdueCount,
+        scheduledCount
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )

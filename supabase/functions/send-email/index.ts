@@ -7,6 +7,8 @@ function getCorsHeaders(requestOrigin: string | null): Record<string, string> {
   const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
+    'http://localhost:5175',
+    'http://localhost:5176',
     'https://www.rembr.co.uk',
     'https://rembr.co.uk'
   ];
@@ -17,9 +19,10 @@ function getCorsHeaders(requestOrigin: string | null): Record<string, string> {
   
   return {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, origin',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Max-Age': '86400', // Cache preflight for 24 hours
   };
 }
 
