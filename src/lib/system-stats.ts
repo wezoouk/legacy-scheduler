@@ -223,13 +223,66 @@ function getUpcomingDeliveries(): Array<{
  */
 export async function getSystemStats(): Promise<SystemStats> {
   try {
-    // Get messages from localStorage
-    const messagesStr = localStorage.getItem('legacyScheduler_messages');
-    const messages = messagesStr ? JSON.parse(messagesStr) : [];
-    
-    // Get recipients
-    const recipientsStr = localStorage.getItem('legacyScheduler_recipients');
-    const recipients = recipientsStr ? JSON.parse(recipientsStr) : [];
+    // Live platform stats from Supabase (no localStorage fallbacks)
+    // Users
+    let totalUsers = 0;
+    try {
+      const { count } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true });
+      totalUsers = count || 0;
+    } catch {
+      totalUsers = 0;
+    }
+
+    // Messages counts
+    const { count: totalMessages = 0 } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true });
+
+    const { count: scheduledMessages = 0 } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'SCHEDULED');
+
+    const { count: draftMessages = 0 } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'DRAFT');
+
+    const { count: activeDMS = 0 } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('scope', 'DMS')
+      .neq('status', 'SENT');
+
+    // Recipients
+    const { count: totalRecipients = 0 } = await supabase
+      .from('recipients')
+      .select('id', { count: 'exact', head: true });
+
+    // Messages sent: prefer durable counter
+    let messagesSent = 0;
+    try {
+      const { data: statsRows } = await supabase
+        .from('user_stats')
+        .select('total_sent_emails');
+      if (statsRows) {
+        messagesSent = statsRows.reduce((sum: number, r: any) => sum + (r.total_sent_emails || 0), 0);
+      } else {
+        const { count: sentFallback = 0 } = await supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'SENT');
+        messagesSent = sentFallback || 0;
+      }
+    } catch {
+      const { count: sentFallback = 0 } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'SENT');
+      messagesSent = sentFallback || 0;
+    }
     
     // Get audit logs
     const auditLogs = getAuditLogs();
@@ -253,19 +306,12 @@ export async function getSystemStats(): Promise<SystemStats> {
       ? ((successfulLogins24h / logins24h.length) * 100).toFixed(1) + '%'
       : '100%';
     
-    // Message statistics
-    const totalMessages = messages.length;
-    const messagesSent = messages.filter((m: any) => m.status === 'SENT').length;
-    const scheduledMessages = messages.filter((m: any) => m.status === 'SCHEDULED').length;
-    const draftMessages = messages.filter((m: any) => m.status === 'DRAFT').length;
-    const activeDMS = messages.filter((m: any) => 
-      m.scope === 'DMS' && m.status !== 'SENT'
-    ).length;
+    // (Message metrics already computed above)
     
     // Media statistics (async)
     const mediaStats = await calculateMediaStorage();
     
-    // User statistics
+    // User activity (client-side heuristic)
     const activeUsers = getActiveUsers(7 * 24 * 60); // Active in last 7 days
     const onlineUsers = getActiveUsers(15); // Active in last 15 minutes
     
@@ -276,19 +322,7 @@ export async function getSystemStats(): Promise<SystemStats> {
     const lastBackupStr = localStorage.getItem('legacyScheduler_lastBackup');
     const lastBackup = lastBackupStr ? new Date(lastBackupStr) : null;
     
-    // Try to get user count from Supabase if available
-    let totalUsers = 1; // At least current user
-    if (supabase) {
-      try {
-        const { count } = await supabase
-          .from('users')
-          .select('*', { count: 'exact', head: true });
-        if (count !== null) totalUsers = count;
-      } catch (err) {
-        console.log('Could not fetch user count from Supabase');
-      }
-    }
-    
+    // New users metrics (approx based on audit logs)
     // New users metrics (from audit logs)
     const newUsersToday = auditLogs.filter(log => 
       log.action === 'login' && 

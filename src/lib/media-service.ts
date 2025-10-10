@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabase';
+import { getStorage } from './storage';
 
 export interface MediaUploadResult {
   url: string;
@@ -14,68 +15,35 @@ export class MediaService {
   static async uploadFile(
     file: File | Blob,
     fileName: string,
-    bucket: string = 'media',
+    _bucket: string = 'media',
     userId?: string
   ): Promise<MediaUploadResult> {
-    if (!isSupabaseConfigured || !supabase) {
-      throw new Error('Supabase not configured');
+    // Generate friendly filename and path (provider-agnostic)
+    // Get user ID from current session if not provided (best-effort)
+    if (!userId && isSupabaseConfigured && supabase) {
+      const { data: { user } } = await supabase.auth.getUser();
+      userId = user?.id;
     }
 
-    try {
-      // Get user ID from current session if not provided
-      if (!userId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        userId = user?.id;
-      }
+    const timestamp = Date.now();
+    const originalExt = fileName.split('.').pop() || 'bin';
+    const baseWithoutExt = fileName.replace(/\.[^/.]+$/i, '');
+    const safeBase = baseWithoutExt
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+      .slice(0, 80) || 'file';
+    const uniqueFileName = `${safeBase}-${timestamp}.${originalExt}`;
+    const filePath = userId ? `uploads/${userId}/${uniqueFileName}` : `uploads/${uniqueFileName}`;
 
-      // Generate friendly filename: use provided name base + timestamp suffix to avoid collisions
-      const timestamp = Date.now();
-      const originalExt = fileName.split('.').pop() || 'bin';
-      const baseWithoutExt = fileName.replace(/\.[^/.]+$/i, '');
-      const safeBase = baseWithoutExt
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '')
-        .slice(0, 80) || 'file';
-      const uniqueFileName = `${safeBase}-${timestamp}.${originalExt}`;
-      
-      // Store files in user-specific folders for better organization and security
-      const filePath = userId ? `uploads/${userId}/${uniqueFileName}` : `uploads/${uniqueFileName}`;
-
-      // Upload file to Supabase Storage
-      const { data, error } = await supabase.storage
-        .from(bucket)
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
-
-      if (error) {
-        console.error('Error uploading file:', error);
-        
-        // If bucket doesn't exist, provide helpful error message
-        if (error.message?.includes('bucket') || error.message?.includes('not found')) {
-          throw new Error(`Storage bucket '${bucket}' does not exist. Please create it in your Supabase dashboard or run the setup-storage-bucket.sql script.`);
-        }
-        
-        throw error;
-      }
-
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(filePath);
-
-      return {
-        url: urlData.publicUrl,
-        path: filePath,
-        size: file.size,
-        type: file.type
-      };
-    } catch (error) {
-      console.error('MediaService.uploadFile error:', error);
-      throw error;
-    }
+    const storage = getStorage();
+    const { url, key } = await storage.upload(file, filePath);
+    return {
+      url,
+      path: key,
+      size: (file as any).size || 0,
+      type: (file as any).type || 'application/octet-stream'
+    };
   }
 
   /**
@@ -123,12 +91,9 @@ export class MediaService {
   /**
    * Get public URL for a file
    */
-  static getPublicUrl(path: string, bucket: string = 'media'): string {
-    if (!isSupabaseConfigured || !supabase) {
-      throw new Error('Supabase not configured');
-    }
-    const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-    return data.publicUrl;
+  static getPublicUrl(path: string): string {
+    const storage = getStorage();
+    return storage.getUrl(path);
   }
 
   /**

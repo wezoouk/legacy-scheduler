@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdmin } from '@/lib/use-admin';
+import { supabase } from '@/lib/supabase';
 import { useMessages } from '@/lib/use-messages';
 import { useRecipients } from '@/lib/use-recipients';
 import { ScheduledProcessor } from '@/components/admin/scheduled-processor';
@@ -16,11 +18,60 @@ import {
 import { format } from 'date-fns';
 
 export function AdminDashboard() {
-  const { getAdminStats, siteSettings } = useAdmin();
+  const { siteSettings } = useAdmin();
   const { messages } = useMessages();
   const { recipients } = useRecipients();
-  
-  const stats = getAdminStats();
+
+  const [platformStats, setPlatformStats] = useState({
+    totalUsers: 0,
+    totalMessages: 0,
+    totalRecipients: 0,
+    activeScheduled: 0,
+  });
+
+  // Load live platform stats from Supabase (no localStorage)
+  useEffect(() => {
+    const load = async () => {
+      try {
+        // Users (profiles table preferred)
+        let totalUsers = 0;
+        try {
+          const { count } = await supabase
+            .from('profiles')
+            .select('*', { count: 'exact', head: true });
+          totalUsers = count || 0;
+        } catch {
+          totalUsers = 0;
+        }
+
+        // Messages
+        const { count: totalMessages = 0 } = await supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true });
+
+        // Recipients
+        const { count: totalRecipients = 0 } = await supabase
+          .from('recipients')
+          .select('id', { count: 'exact', head: true });
+
+        // Scheduled
+        const { count: scheduled = 0 } = await supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'SCHEDULED');
+
+        setPlatformStats({
+          totalUsers,
+          totalMessages: totalMessages || 0,
+          totalRecipients: totalRecipients || 0,
+          activeScheduled: scheduled || 0,
+        });
+      } catch (e) {
+        console.error('Failed to load platform stats:', e);
+      }
+    };
+    load();
+  }, []);
   
   const recentMessages = messages
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -54,7 +105,7 @@ export function AdminDashboard() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalUsers}</div>
+            <div className="text-2xl font-bold">{platformStats.totalUsers}</div>
             <p className="text-xs text-muted-foreground">
               Active platform users
             </p>
@@ -67,7 +118,7 @@ export function AdminDashboard() {
             <Mail className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalMessages}</div>
+            <div className="text-2xl font-bold">{platformStats.totalMessages}</div>
             <p className="text-xs text-muted-foreground">
               All time messages created
             </p>
@@ -80,7 +131,7 @@ export function AdminDashboard() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalRecipients}</div>
+            <div className="text-2xl font-bold">{platformStats.totalRecipients}</div>
             <p className="text-xs text-muted-foreground">
               Registered recipients
             </p>
@@ -93,7 +144,7 @@ export function AdminDashboard() {
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.activeScheduled}</div>
+            <div className="text-2xl font-bold">{platformStats.activeScheduled}</div>
             <p className="text-xs text-muted-foreground">
               Pending delivery
             </p>
