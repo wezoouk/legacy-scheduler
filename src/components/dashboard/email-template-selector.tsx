@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { emailTemplates, getTemplatesByCategory, type EmailTemplate } from '@/lib/email-templates';
-import { Mail, Eye, Sparkles, Heart, Calendar, GraduationCap, Baby, Shield } from 'lucide-react';
+import { Mail, Eye, Sparkles, Heart, Calendar, GraduationCap, Baby, Shield, Edit } from 'lucide-react';
+import { TemplateEditorDialog } from './template-editor-dialog';
 
 interface EmailTemplateSelectorProps {
   open: boolean;
@@ -15,6 +16,7 @@ interface EmailTemplateSelectorProps {
 export function EmailTemplateSelector({ open, onOpenChange, onSelectTemplate }: EmailTemplateSelectorProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [previewTemplate, setPreviewTemplate] = useState<EmailTemplate | null>(null);
+  const [editTemplate, setEditTemplate] = useState<EmailTemplate | null>(null);
 
   const templatesByCategory = getTemplatesByCategory();
   const categories = Object.keys(templatesByCategory);
@@ -129,6 +131,15 @@ export function EmailTemplateSelector({ open, onOpenChange, onSelectTemplate }: 
                           </Button>
                           <Button
                             size="sm"
+                            onClick={() => setEditTemplate(template)}
+                            variant="outline"
+                            className="flex-1"
+                          >
+                            <Edit className="w-3 h-3 mr-1" />
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
                             onClick={() => handleSelectTemplate(template)}
                             className="flex-1"
                           >
@@ -154,7 +165,7 @@ export function EmailTemplateSelector({ open, onOpenChange, onSelectTemplate }: 
 
       {/* Template Preview Dialog */}
       <Dialog open={!!previewTemplate} onOpenChange={() => setPreviewTemplate(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl w-[95vw] h-[95vh] overflow-hidden">
           <DialogHeader>
             <DialogTitle className="flex items-center">
               <Eye className="w-5 h-5 mr-2" />
@@ -163,21 +174,21 @@ export function EmailTemplateSelector({ open, onOpenChange, onSelectTemplate }: 
           </DialogHeader>
           
           {previewTemplate && (
-            <div className="space-y-4">
-              <div>
+            <div className="flex flex-col h-full space-y-4">
+              <div className="flex-shrink-0">
                 <h4 className="font-semibold mb-2">Subject Line:</h4>
                 <p className="text-gray-700 bg-gray-50 p-2 rounded">{previewTemplate.subject}</p>
               </div>
               
-              <div>
+              <div className="flex-1 overflow-hidden">
                 <h4 className="font-semibold mb-2">Email Content:</h4>
                 <div 
-                  className="border rounded-lg p-4 bg-white max-h-96 overflow-y-auto"
+                  className="border rounded-lg p-4 bg-white h-full overflow-y-auto"
                   dangerouslySetInnerHTML={{ __html: previewTemplate.content }}
                 />
               </div>
               
-              <div className="flex justify-end space-x-2">
+              <div className="flex-shrink-0 flex justify-end space-x-2">
                 <Button variant="outline" onClick={() => setPreviewTemplate(null)}>
                   Close
                 </Button>
@@ -192,6 +203,17 @@ export function EmailTemplateSelector({ open, onOpenChange, onSelectTemplate }: 
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Template Editor Dialog */}
+      <TemplateEditorDialog
+        open={!!editTemplate}
+        onOpenChange={(open) => !open && setEditTemplate(null)}
+        template={editTemplate}
+        onSave={(editedTemplate) => {
+          handleSelectTemplate(editedTemplate);
+          setEditTemplate(null);
+        }}
+      />
     </>
   );
 }

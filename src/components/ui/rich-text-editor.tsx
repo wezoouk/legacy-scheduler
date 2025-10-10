@@ -27,7 +27,9 @@ const modules = {
 const formats = [
   'header', 'bold', 'italic', 'underline', 'strike',
   'color', 'background', 'align', 'list', 'bullet',
-  'blockquote', 'code-block', 'link', 'image'
+  'blockquote', 'code-block', 'link', 'image',
+  'table', 'tr', 'td', 'th', 'tbody', 'thead',
+  'script', 'style'
 ];
 
 export const RichTextEditor = forwardRef<ReactQuill, RichTextEditorProps>(
