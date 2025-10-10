@@ -14,13 +14,20 @@ export class MediaService {
   static async uploadFile(
     file: File | Blob,
     fileName: string,
-    bucket: string = 'media'
+    bucket: string = 'media',
+    userId?: string
   ): Promise<MediaUploadResult> {
     if (!isSupabaseConfigured || !supabase) {
       throw new Error('Supabase not configured');
     }
 
     try {
+      // Get user ID from current session if not provided
+      if (!userId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        userId = user?.id;
+      }
+
       // Generate friendly filename: use provided name base + timestamp suffix to avoid collisions
       const timestamp = Date.now();
       const originalExt = fileName.split('.').pop() || 'bin';
@@ -31,7 +38,9 @@ export class MediaService {
         .replace(/(^-|-$)/g, '')
         .slice(0, 80) || 'file';
       const uniqueFileName = `${safeBase}-${timestamp}.${originalExt}`;
-      const filePath = `uploads/${uniqueFileName}`;
+      
+      // Store files in user-specific folders for better organization and security
+      const filePath = userId ? `uploads/${userId}/${uniqueFileName}` : `uploads/${uniqueFileName}`;
 
       // Upload file to Supabase Storage
       const { data, error } = await supabase.storage

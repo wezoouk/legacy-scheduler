@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { supabase } from './supabase';
+import { addAuditLog } from './audit-log';
+import { trackUserActivity } from './system-stats';
 
 interface User {
   id: string;
@@ -32,9 +34,10 @@ export function useAuth() {
 
 // Removed demo account functions - Supabase only
 
-function isAdminEmail(email: string): boolean {
-  const adminEmails = ['davwez@gmail.com', 'admin@legacyscheduler.com'];
-  return adminEmails.includes(email.toLowerCase()) || email.toLowerCase().includes('davwez');
+export function isAdminEmail(email: string): boolean {
+  // ONLY these exact emails have admin access - NO partial matches for security
+  const adminEmails = ['davwez@gmail.com', 'davwez88@gmail.com'];
+  return adminEmails.includes(email.toLowerCase());
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -73,6 +76,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 };
                 setUser(fastUser);
                 setIsLoading(false);
+                // Log successful login
+                try {
+                  addAuditLog(fastUser.id, fastUser.email, 'login', 'success');
+                  trackUserActivity(fastUser.id);
+                } catch (e) {
+                  console.error('Failed to log audit event:', e);
+                }
                 // Load/ensure profile in background without blocking UI
                 loadUserProfile(session.user.id).catch((e) => console.error('Background profile load error:', e));
               }
@@ -176,6 +186,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             name: authUser.user.user_metadata?.name || authUser.user.email?.split('@')[0] || 'User',
             plan: (authUser.user.email?.includes('davwez') ? 'LEGACY' : 'FREE') as 'FREE' | 'PLUS' | 'LEGACY',
             timezone: 'Europe/London',
+            image: authUser.user.user_metadata?.image,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
@@ -204,7 +215,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } else if (data) {
         console.log('Loaded existing user profile from database:', data);
-        setUser(data);
+        
+        // Also fetch image from auth user_metadata
+        const { data: authUser } = await supabase.auth.getUser();
+        const imageFromMetadata = authUser?.user?.user_metadata?.image;
+        
+        if (imageFromMetadata) {
+          console.log('✅ Found profile image in user_metadata:', imageFromMetadata);
+          setUser({
+            ...data,
+            image: imageFromMetadata
+          });
+        } else {
+          console.log('ℹ️ No profile image found in user_metadata');
+          setUser(data);
+        }
       } else if (error) {
         console.error('Error loading user profile:', error);
         // Fallback: create user from auth data
@@ -217,6 +242,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             name: authUser.user.user_metadata?.name || authUser.user.email?.split('@')[0] || 'User',
             plan: (authUser.user.email?.includes('davwez') ? 'LEGACY' : 'FREE') as 'FREE' | 'PLUS' | 'LEGACY',
             timezone: 'Europe/London',
+            image: authUser.user.user_metadata?.image,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
@@ -238,6 +264,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     console.log('=== LOGIN START ===');
     console.log('Login attempt for email:', email);
+    console.log('Supabase client exists:', !!supabase);
+    console.log('Supabase URL:', supabase?.supabaseUrl);
+    console.log('Supabase key length:', supabase?.supabaseKey?.length);
     setIsLoading(true);
     try {
       if (!supabase) {
@@ -267,15 +296,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (!error) {
         console.log('Supabase login successful');
+        // Note: We can't add audit log here yet because user object isn't set
+        // Audit log will be added in the auth state change listener
         return; // Success, user will be loaded by auth state change
       } else {
         console.log('Supabase login error:', error.message);
+        // Log failed login attempt
+        try {
+          addAuditLog('unknown', email, 'failed_login', 'failure', error.message);
+        } catch (e) {
+          console.error('Failed to log audit event:', e);
+        }
         // NO FALLBACK - Supabase only
         throw new Error(`Login failed: ${error.message}`);
       }
     } catch (error) {
       console.log('Supabase login failed:', error);
       console.log('Login error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      // Log failed login attempt
+      try {
+        addAuditLog('unknown', email, 'failed_login', 'failure', error instanceof Error ? error.message : 'Unknown error');
+      } catch (e) {
+        console.error('Failed to log audit event:', e);
+      }
       setIsLoading(false);
       throw new Error('Login failed. Please check your credentials or create an account first.');
     }
@@ -306,7 +349,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.user) {
         console.log('Supabase registration successful');
-        // User will be automatically signed in after email confirmation
+        console.log('Confirmation email sent to:', email);
+        // User must verify their email before they can sign in
+        setIsLoading(false);
         return;
       }
     } catch (error) {
@@ -317,6 +362,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    // Log logout before clearing user
+    if (user) {
+      try {
+        addAuditLog(user.id, user.email, 'logout', 'success');
+      } catch (e) {
+        console.error('Failed to log audit event:', e);
+      }
+    }
+    
     try {
       if (supabase) {
         await supabase.auth.signOut();
@@ -359,6 +413,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logout,
     updateUser,
   };
+
+  // Track user activity every 5 minutes while they're using the app
+  useEffect(() => {
+    if (!user) return;
+    
+    trackUserActivity(user.id);
+    const interval = setInterval(() => {
+      trackUserActivity(user.id);
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    return () => clearInterval(interval);
+  }, [user]);
 
   return (
     <AuthContext.Provider value={value}>

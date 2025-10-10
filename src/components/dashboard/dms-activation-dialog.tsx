@@ -21,10 +21,10 @@ const reminderSchema = z.object({
 const dmsActivationSchema = z.object({
   frequencyDays: z.number().min(1, "Must be at least 1").max(365, "Cannot exceed 365"),
   frequencyUnit: z.enum(['minutes','hours','days']).default('days'),
-  graceDays: z.number().min(0, "Cannot be negative").max(30, "Cannot exceed 30"),
-  graceUnit: z.enum(['minutes','hours','days']).default('days'),
+  graceDays: z.number().min(0, "Cannot be negative").max(30, "Cannot exceed 30").default(0),
+  graceUnit: z.enum(['minutes','hours','days']).default('minutes'),
   durationDays: z.number().min(1, "Must be at least 1 day").max(365, "Cannot exceed 365 days"),
-  checkInReminderHours: z.number().min(1, "Must be at least 1 hour").max(168, "Cannot exceed 7 days"),
+  checkInReminderHours: z.number().min(0, "Must be at least 0 hour").max(168, "Cannot exceed 7 days").default(0),
   channels: z.object({
     email: z.boolean(),
     sms: z.boolean(),
@@ -62,10 +62,10 @@ export function DmsActivationDialog({ open, onOpenChange, onActivate, initialCon
     defaultValues: {
       frequencyDays: 7,
       frequencyUnit: 'days',
-      graceDays: 3,
-      graceUnit: 'days',
+      graceDays: 0,
+      graceUnit: 'minutes',
       durationDays: 30,
-      checkInReminderHours: 24,
+      checkInReminderHours: 0,
       channels: {
         email: true,
         sms: false,
@@ -220,7 +220,7 @@ export function DmsActivationDialog({ open, onOpenChange, onActivate, initialCon
               <Input
                 id="checkInReminderHours"
                 type="number"
-                min="1"
+                min="0"
                 max="168"
                 className="h-8 text-sm"
                 {...register("checkInReminderHours", { valueAsNumber: true })}

@@ -55,7 +55,7 @@ export const emailTemplates: EmailTemplate[] = [
         <tr>
           <td style="background: #f8f9fa; padding: 20px; text-align: center; border-radius: 0 0 16px 16px;">
             <p style="font-size: 12px; color: #666; margin: 0;">
-              This message was sent with love through Legacy Scheduler 💝
+              This message was sent with love through {{siteName}} 💝
             </p>
           </td>
         </tr>
@@ -106,7 +106,7 @@ export const emailTemplates: EmailTemplate[] = [
         
         <div style="background: linear-gradient(135deg, #c41e3a 0%, #2e8b57 100%); padding: 20px; text-align: center; color: white;">
           <p style="font-size: 12px; margin: 0; opacity: 0.8;">
-            🎄 Sent with love through Legacy Scheduler 🎄
+            🎄 Sent with love through {{siteName}} 🎄
           </p>
         </div>
       </div>
@@ -156,7 +156,7 @@ export const emailTemplates: EmailTemplate[] = [
         
         <div style="background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); padding: 20px; text-align: center; color: #4a0e2b;">
           <p style="font-size: 12px; margin: 0; opacity: 0.8;">
-            💕 Sent with eternal love through Legacy Scheduler 💕
+            💕 Sent with eternal love through {{siteName}} 💕
           </p>
         </div>
       </div>
@@ -216,7 +216,7 @@ export const emailTemplates: EmailTemplate[] = [
         
         <div style="background: #f3f4f6; padding: 16px; text-align: center;">
           <p style="font-size: 11px; color: #6b7280; margin: 0;">
-            📜 A message of love delivered through Legacy Scheduler 📜
+            📜 A message of love delivered through {{siteName}} 📜
           </p>
         </div>
       </div>
@@ -266,7 +266,7 @@ export const emailTemplates: EmailTemplate[] = [
         
         <div style="background: #f97316; padding: 16px; text-align: center; color: white;">
           <p style="font-size: 12px; margin: 0; opacity: 0.9;">
-            🙏 Gratitude shared through Legacy Scheduler 🙏
+            🙏 Gratitude shared through {{siteName}} 🙏
           </p>
         </div>
       </div>
@@ -320,7 +320,7 @@ export const emailTemplates: EmailTemplate[] = [
         
         <div style="background: #1e40af; padding: 20px; text-align: center; color: white;">
           <p style="font-size: 12px; margin: 0; opacity: 0.9;">
-            🎓 Celebrating achievements through Legacy Scheduler 🎓
+            🎓 Celebrating achievements through {{siteName}} 🎓
           </p>
         </div>
       </div>
@@ -373,7 +373,7 @@ export const emailTemplates: EmailTemplate[] = [
         
         <div style="background: #f59e0b; padding: 16px; text-align: center; color: white;">
           <p style="font-size: 12px; margin: 0; opacity: 0.9;">
-            👶 Celebrating new life through Legacy Scheduler 👶
+            👶 Celebrating new life through {{siteName}} 👶
           </p>
         </div>
       </div>
@@ -435,7 +435,7 @@ export const emailTemplates: EmailTemplate[] = [
         
         <div style="background: #0369a1; padding: 16px; text-align: center; color: white;">
           <p style="font-size: 12px; margin: 0; opacity: 0.9;">
-            💪 Strength shared through Legacy Scheduler 💪
+            💪 Strength shared through {{siteName}} 💪
           </p>
         </div>
       </div>
@@ -500,7 +500,7 @@ export const emailTemplates: EmailTemplate[] = [
         
         <div style="background: #312e81; padding: 20px; text-align: center; color: white;">
           <p style="font-size: 12px; margin: 0; opacity: 0.8;">
-            💝 Love transcends through Legacy Scheduler 💝
+            💝 Love transcends through {{siteName}} 💝
           </p>
         </div>
       </div>
@@ -509,7 +509,8 @@ export const emailTemplates: EmailTemplate[] = [
 ];
 
 export function getTemplatesByCategory() {
-  const categories = [...new Set(emailTemplates.map(t => t.category))];
+  const categoriesSet = new Set(emailTemplates.map(t => t.category));
+  const categories = Array.from(categoriesSet);
   return categories.reduce((acc, category) => {
     acc[category] = emailTemplates.filter(t => t.category === category);
     return acc;
@@ -518,4 +519,14 @@ export function getTemplatesByCategory() {
 
 export function getTemplateById(id: string): EmailTemplate | undefined {
   return emailTemplates.find(t => t.id === id);
+}
+
+/**
+ * Process template content by replacing placeholders with actual values
+ * @param content - Template content with placeholders like {{siteName}}
+ * @param siteName - The site name to replace {{siteName}} with
+ * @returns Processed content with placeholders replaced
+ */
+export function processTemplateContent(content: string, siteName: string = 'Rembr'): string {
+  return content.replace(/\{\{siteName\}\}/g, siteName);
 }

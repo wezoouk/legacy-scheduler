@@ -15,7 +15,7 @@ import { VideoGallery } from '@/components/dashboard/video-gallery';
 import { AudioGallery } from '@/components/dashboard/audio-gallery';
 import { DashboardRecording } from '@/components/dashboard/dashboard-recording';
 import { EmailService } from '@/lib/email-service';
-import { Plus, User } from 'lucide-react';
+import { Plus, User, ArrowRightLeft } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { Link } from 'react-router-dom';
 import { useMessages } from '@/lib/use-messages';
@@ -41,16 +41,21 @@ export function Dashboard() {
       if (!user || !supabase) return;
       
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       
       try {
-        console.log('🔄 Auto-checking for overdue Guardian Angel messages...');
+        if (localStorage.getItem('debug_verbose') === '1') {
+          console.log('🔄 Auto-checking for overdue Guardian Angel messages...');
+        }
+
+        // Prefer the logged-in user's access token if available (required when JWT verification is enabled)
+        const { data } = await supabase.auth.getSession();
+        const accessToken = data.session?.access_token;
         const response = await fetch(
           `${supabaseUrl}/functions/v1/process-scheduled-messages`,
           {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${supabaseKey}`,
+              'Authorization': `Bearer ${accessToken || import.meta.env.VITE_SUPABASE_ANON_KEY}`,
               'Content-Type': 'application/json',
               'Origin': window.location.origin
             },
@@ -59,7 +64,9 @@ export function Dashboard() {
         );
         
         if (response.ok) {
-          console.log('✅ Auto-check completed, refreshing messages...');
+          if (localStorage.getItem('debug_verbose') === '1') {
+            console.log('✅ Auto-check completed, refreshing messages...');
+          }
           // Refresh messages after check
           await refreshMessages();
         } else {
@@ -95,6 +102,15 @@ export function Dashboard() {
               </p>
             </div>
             <div className="flex items-center space-x-3">
+              <Link to="/dashboard/migrate-media">
+                <Button 
+                  variant="outline" 
+                  className="text-sm"
+                >
+                  <ArrowRightLeft className="h-4 w-4 mr-2" />
+                  Migrate Media
+                </Button>
+              </Link>
               <Button 
                 variant="outline" 
                 onClick={() => setShowMigrationDialog(true)}

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,7 @@ export function SignUpPage() {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const { register: registerUser, isLoading } = useAuth();
+  const navigate = useNavigate();
   
   const {
     register,
@@ -40,10 +41,36 @@ export function SignUpPage() {
     try {
       setError("");
       setSuccessMessage("");
+      
+      // Attempt to register the user
       await registerUser(data.email, data.password, data.name);
-      setSuccessMessage("Account created successfully! You can now sign in.");
+      
+      setSuccessMessage("Account created successfully! Please check your email to verify your account before signing in.");
+      
+      // Redirect to sign-in page after 3 seconds
+      setTimeout(() => {
+        navigate('/auth/sign-in', { 
+          state: { 
+            message: 'Account created! Please check your email to verify your account, then sign in.' 
+          } 
+        });
+      }, 3000);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to create account. Please try again.";
+      let errorMessage = err instanceof Error ? err.message : "Failed to create account. Please try again.";
+      
+      // Handle specific error cases
+      if (errorMessage.includes('already registered') || errorMessage.includes('already exists')) {
+        errorMessage = "This email is already registered. Please sign in or use a different email.";
+      } else if (errorMessage.includes('User already registered')) {
+        errorMessage = "An account with this email already exists. Please sign in instead.";
+      } else if (errorMessage.includes('duplicate') || errorMessage.includes('unique')) {
+        errorMessage = "This email is already in use. Please use a different email or sign in.";
+      } else if (errorMessage.includes('invalid email')) {
+        errorMessage = "Please enter a valid email address.";
+      } else if (errorMessage.includes('password')) {
+        errorMessage = "Password must be at least 8 characters long.";
+      }
+      
       setError(errorMessage);
     }
   };
@@ -62,15 +89,30 @@ export function SignUpPage() {
             {error && (
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
+                <AlertDescription>
+                  <div className="space-y-2">
+                    <p>{error}</p>
+                    {(error.includes('already') || error.includes('exists')) && (
+                      <Link 
+                        to="/auth/sign-in" 
+                        className="text-sm underline hover:no-underline font-medium block"
+                      >
+                        Go to Sign In →
+                      </Link>
+                    )}
+                  </div>
+                </AlertDescription>
               </Alert>
             )}
 
             {successMessage && (
-              <Alert className="border-green-200 bg-green-50">
-                <CheckCircle className="h-4 w-4 text-green-600" />
-                <AlertDescription className="text-green-800">
-                  {successMessage}
+              <Alert className="border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800">
+                <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                <AlertDescription className="text-green-800 dark:text-green-200">
+                  <div className="space-y-2">
+                    <p className="font-semibold">{successMessage}</p>
+                    <p className="text-sm">Redirecting to sign in page...</p>
+                  </div>
                 </AlertDescription>
               </Alert>
             )}

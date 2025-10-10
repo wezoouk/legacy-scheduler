@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useMessages } from "@/lib/use-messages";
+import { useAdmin } from "@/lib/use-admin";
 import { EmailPreviewDialog } from "./email-preview-dialog";
 import { EditMessageDialog } from "@/components/dashboard/edit-message-dialog";
 import { Edit, Trash2, Send, Clock, Mail, Video, Mic, FileText, Copy, Shield, Eye, HardDrive, Cloud } from "lucide-react";
@@ -14,6 +15,7 @@ import { toast } from "../../../hooks/use-toast";
 export function ScheduledMessageList() {
   const { messages, deleteMessage, updateMessage, createMessage } = useMessages();
   const { recipients } = useRecipients();
+  const { siteSettings } = useAdmin();
   const [editingMessage, setEditingMessage] = useState<any>(null);
   const [previewingMessage, setPreviewingMessage] = useState<any>(null);
 
@@ -335,7 +337,7 @@ export function ScheduledMessageList() {
           <Mail className="h-12 w-12 text-gray-400 mb-4" />
           <h3 className="text-lg font-semibold text-gray-900 mb-2">No messages yet</h3>
           <p className="text-gray-500 text-center mb-6">
-            Create your first message to get started with Legacy Scheduler
+            Create your first message to get started with {siteSettings.siteName}
           </p>
         </CardContent>
       </Card>
@@ -664,7 +666,7 @@ export function ScheduledMessageList() {
             <Mail className="h-12 w-12 text-gray-400 mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">No scheduled or sent messages</h3>
             <p className="text-gray-500 text-center mb-6">
-              Create your first message to get started with Legacy Scheduler
+              Create your first message to get started with {siteSettings.siteName}
             </p>
           </CardContent>
         </Card>

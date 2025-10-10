@@ -22,10 +22,23 @@ import {
 
 const customizationSchema = z.object({
   siteName: z.string().min(1, 'Site name is required'),
+  heroTitle: z.string().min(1, 'Hero title is required'),
+  heroSubtitle: z.string().min(1, 'Hero subtitle is required'),
+  heroTitleSize: z.string().optional(),
+  heroSubtitleSize: z.string().optional(),
+  heroTitleWeight: z.string().optional(),
+  heroSubtitleWeight: z.string().optional(),
+  heroTitleLetterSpacing: z.string().optional(),
+  heroSubtitleLetterSpacing: z.string().optional(),
+  heroTitleTransform: z.enum(['none', 'uppercase', 'lowercase', 'capitalize']).optional(),
+  heroSubtitleTransform: z.enum(['none', 'uppercase', 'lowercase', 'capitalize']).optional(),
   heroVideoUrl: z.string().url().optional().or(z.literal('')),
   heroBackgroundColor: z.string().min(1, 'Background color is required'),
   heroTextColor: z.string().min(1, 'Text color is required'),
   heroSubtextColor: z.string().min(1, 'Subtext color is required'),
+  heroMediaOpacity: z.number().optional(),
+  heroOverlayOpacity: z.number().optional(),
+  heroLayout: z.enum(['boxed', 'full']).optional(),
   primaryFont: z.string().min(1, 'Font is required'),
   heroFont: z.string().min(1, 'Hero font is required'),
   primaryColor: z.string().min(1, 'Primary color is required'),
@@ -90,7 +103,8 @@ export function SiteCustomization() {
       'Open Sans': '"Open Sans", -apple-system, BlinkMacSystemFont, sans-serif',
       'Lato': '"Lato", -apple-system, BlinkMacSystemFont, sans-serif',
       'Montserrat': '"Montserrat", -apple-system, BlinkMacSystemFont, sans-serif',
-      'Poppins': '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif'
+      'Poppins': '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
+      'Cinzel': '"Cinzel", Georgia, "Times New Roman", serif'
     };
     return fontFamilies[fontName as keyof typeof fontFamilies] || fontName;
   };
@@ -115,11 +129,22 @@ export function SiteCustomization() {
     'Open Sans',
     'Lato',
     'Montserrat',
-    'Poppins'
+    'Poppins',
+    'Cinzel'
   ];
 
   const resetToDefaults = () => {
-    setValue('siteName', 'Legacy Scheduler');
+    setValue('siteName', 'Rembr');
+    setValue('heroTitle', 'Send messages. Forever.');
+    setValue('heroSubtitle', 'Elegant scheduled messaging for legacy and care.');
+    setValue('heroTitleSize', '3.75rem');
+    setValue('heroSubtitleSize', '1.5rem');
+    setValue('heroTitleWeight', '800');
+    setValue('heroSubtitleWeight', '400');
+    setValue('heroTitleLetterSpacing', 'normal');
+    setValue('heroSubtitleLetterSpacing', 'normal');
+    setValue('heroTitleTransform', 'none');
+    setValue('heroSubtitleTransform', 'none');
     setValue('heroVideoUrl', '');
     setValue('heroBackgroundColor', '#ffffff');
     setValue('heroTextColor', '#0f172a');
@@ -134,9 +159,9 @@ export function SiteCustomization() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Site Customization</h1>
-          <p className="text-gray-600 mt-2">
-            Customize the appearance and branding of your Legacy Scheduler website
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Site Customization</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-2">
+            Customize the appearance and branding of your {siteSettings.siteName} website
           </p>
         </div>
         <div className="flex items-center space-x-3">
@@ -184,16 +209,27 @@ export function SiteCustomization() {
               )}
               <div className={`relative z-10 text-center ${watchedValues.heroLayout === 'full' ? 'max-w-7xl' : 'max-w-4xl'} mx-auto`}>
                 <h1 
-                  className="text-4xl font-bold mb-4"
-                  style={{ color: watchedValues.heroTextColor }}
+                  className="mb-4"
+                  style={{ 
+                    color: watchedValues.heroTextColor,
+                    fontSize: watchedValues.heroTitleSize || '3.75rem',
+                    fontWeight: watchedValues.heroTitleWeight || '800',
+                    letterSpacing: watchedValues.heroTitleLetterSpacing || 'normal',
+                    textTransform: watchedValues.heroTitleTransform || 'none',
+                  }}
                 >
-                  Send messages. Forever.
+                  {watchedValues.heroTitle || 'Send messages. Forever.'}
                 </h1>
                 <p 
-                  className="text-xl"
-                  style={{ color: watchedValues.heroSubtextColor }}
+                  style={{ 
+                    color: watchedValues.heroSubtextColor,
+                    fontSize: watchedValues.heroSubtitleSize || '1.5rem',
+                    fontWeight: watchedValues.heroSubtitleWeight || '400',
+                    letterSpacing: watchedValues.heroSubtitleLetterSpacing || 'normal',
+                    textTransform: watchedValues.heroSubtitleTransform || 'none',
+                  }}
                 >
-                  Elegant scheduled messaging for legacy and care
+                  {watchedValues.heroSubtitle || 'Elegant scheduled messaging for legacy and care'}
                 </p>
                 <button 
                   className="mt-6 px-6 py-3 rounded-full font-semibold text-white"
@@ -225,7 +261,7 @@ export function SiteCustomization() {
                 <Label htmlFor="siteName">Site Name</Label>
                 <Input
                   id="siteName"
-                  placeholder="Legacy Scheduler"
+                  placeholder="Rembr"
                   {...register('siteName')}
                 />
                 {errors.siteName && (
@@ -260,6 +296,147 @@ export function SiteCustomization() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            <div className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="heroTitle">Hero Title</Label>
+                  <Input
+                    id="heroTitle"
+                    placeholder="Send messages. Forever."
+                    {...register('heroTitle')}
+                  />
+                  {errors.heroTitle && (
+                    <p className="text-sm text-destructive">{errors.heroTitle.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="heroSubtitle">Hero Subtitle</Label>
+                  <Input
+                    id="heroSubtitle"
+                    placeholder="Elegant scheduled messaging for legacy and care."
+                    {...register('heroSubtitle')}
+                  />
+                  {errors.heroSubtitle && (
+                    <p className="text-sm text-destructive">{errors.heroSubtitle.message}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Title Typography Controls */}
+              <div className="border rounded-lg p-4 space-y-4 bg-gray-50 dark:bg-gray-800/50">
+                <h4 className="font-semibold text-sm text-gray-900 dark:text-white">Title Typography</h4>
+                <div className="grid md:grid-cols-4 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="heroTitleSize">Font Size</Label>
+                    <Input
+                      id="heroTitleSize"
+                      placeholder="3.75rem"
+                      {...register('heroTitleSize')}
+                    />
+                    <p className="text-xs text-muted-foreground">e.g., 3rem, 48px</p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="heroTitleWeight">Font Weight</Label>
+                    <select
+                      id="heroTitleWeight"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      {...register('heroTitleWeight')}
+                    >
+                      <option value="300">Light (300)</option>
+                      <option value="400">Normal (400)</option>
+                      <option value="500">Medium (500)</option>
+                      <option value="600">Semibold (600)</option>
+                      <option value="700">Bold (700)</option>
+                      <option value="800">Extra Bold (800)</option>
+                      <option value="900">Black (900)</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="heroTitleLetterSpacing">Letter Spacing</Label>
+                    <Input
+                      id="heroTitleLetterSpacing"
+                      placeholder="normal"
+                      {...register('heroTitleLetterSpacing')}
+                    />
+                    <p className="text-xs text-muted-foreground">e.g., 0.05em, 2px</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="heroTitleTransform">Text Transform</Label>
+                    <select
+                      id="heroTitleTransform"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      {...register('heroTitleTransform')}
+                    >
+                      <option value="none">None</option>
+                      <option value="uppercase">UPPERCASE</option>
+                      <option value="lowercase">lowercase</option>
+                      <option value="capitalize">Capitalize</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Subtitle Typography Controls */}
+              <div className="border rounded-lg p-4 space-y-4 bg-gray-50 dark:bg-gray-800/50">
+                <h4 className="font-semibold text-sm text-gray-900 dark:text-white">Subtitle Typography</h4>
+                <div className="grid md:grid-cols-4 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="heroSubtitleSize">Font Size</Label>
+                    <Input
+                      id="heroSubtitleSize"
+                      placeholder="1.5rem"
+                      {...register('heroSubtitleSize')}
+                    />
+                    <p className="text-xs text-muted-foreground">e.g., 1.5rem, 24px</p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="heroSubtitleWeight">Font Weight</Label>
+                    <select
+                      id="heroSubtitleWeight"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      {...register('heroSubtitleWeight')}
+                    >
+                      <option value="300">Light (300)</option>
+                      <option value="400">Normal (400)</option>
+                      <option value="500">Medium (500)</option>
+                      <option value="600">Semibold (600)</option>
+                      <option value="700">Bold (700)</option>
+                      <option value="800">Extra Bold (800)</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="heroSubtitleLetterSpacing">Letter Spacing</Label>
+                    <Input
+                      id="heroSubtitleLetterSpacing"
+                      placeholder="normal"
+                      {...register('heroSubtitleLetterSpacing')}
+                    />
+                    <p className="text-xs text-muted-foreground">e.g., 0.05em, 2px</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="heroSubtitleTransform">Text Transform</Label>
+                    <select
+                      id="heroSubtitleTransform"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      {...register('heroSubtitleTransform')}
+                    >
+                      <option value="none">None</option>
+                      <option value="uppercase">UPPERCASE</option>
+                      <option value="lowercase">lowercase</option>
+                      <option value="capitalize">Capitalize</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="space-y-2">
                 <Label htmlFor="heroVideoUrl">Background Video (upload or URL)</Label>
               <Input

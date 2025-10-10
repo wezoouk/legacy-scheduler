@@ -25,6 +25,12 @@ if (!isConfigured) {
 if (import.meta.env.DEV && isConfigured) {
   console.log('[Supabase] Using anon key (masked):', anon.slice(0, 6) + '…' + anon.slice(-4));
   console.log('[Supabase] Using URL:', url);
+} else if (import.meta.env.DEV) {
+  console.error('[Supabase] Configuration check failed:');
+  console.error('- URL:', url);
+  console.error('- Anon key length:', anon?.length || 0);
+  console.error('- URL placeholder check:', url?.includes('YOUR-PROJECT') || url?.includes('placeholder'));
+  console.error('- Anon placeholder check:', anon?.includes('YOUR-ANON') || anon?.includes('placeholder'));
 }
 
 // Only create client if properly configured

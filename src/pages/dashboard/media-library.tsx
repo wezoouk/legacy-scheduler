@@ -2,10 +2,21 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MediaService } from '@/lib/media-service';
+import { useAuth } from '@/lib/auth-context';
 import { Image as ImageIcon, Download, Music, File as FileIcon, Video as VideoIcon } from 'lucide-react';
 
+interface MediaFile {
+  name: string;
+  path: string;
+  created_at?: string;
+  updated_at?: string;
+  userId?: string;
+  userName?: string;
+}
+
 export function MediaLibraryPage() {
-  const [files, setFiles] = React.useState<Array<{ name: string; path: string }>>([]);
+  const { user } = useAuth();
+  const [files, setFiles] = React.useState<MediaFile[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const mediaRefs = React.useRef<Map<string, HTMLMediaElement>>(new Map());
@@ -60,28 +71,55 @@ export function MediaLibraryPage() {
   };
 
   const refresh = React.useCallback(async () => {
+    if (!user) return;
+    
     setLoading(true);
     setError(null);
     try {
-      const prefixes = ['uploads', 'audio', 'recordings', 'voice'];
+      // List files ONLY from user-specific folders
+      const userPrefixes = [
+        `uploads/${user.id}`,
+        `audio/${user.id}`,
+        `recordings/${user.id}`,
+        `voice/${user.id}`
+      ];
+      
       const results: Array<{ name: string; path: string; created_at?: string; updated_at?: string }[]> = await Promise.all(
-        prefixes.map(async (p) => {
+        userPrefixes.map(async (p) => {
           try { return await MediaService.listFiles(p); } catch { return []; }
         })
       );
-      const mergedMap = new Map<string, { name: string; path: string; created_at?: string; updated_at?: string }>();
+      
+      const mergedMap = new Map<string, { name: string; path: string; created_at?: string; updated_at?: string; userId?: string }>();
       for (const arr of results) {
         for (const f of arr) {
-          mergedMap.set(f.path, f);
+          // Only include files that are in user-specific folders
+          // Path format: "uploads/{userId}/filename.jpg"
+          
+          const pathParts = f.path.split('/');
+          
+          // Check if this is a user-specific file
+          if (pathParts.length >= 3 && pathParts[1] === user.id) {
+            mergedMap.set(f.path, {
+              ...f,
+              userId: user.id,
+              userName: user.name || user.email
+            });
+          }
+          
+          // For legacy root files (2 parts like "uploads/file.jpg"),
+          // we'll skip them for security - they shouldn't be visible
+          // If you want to see your own legacy files, they need to be migrated
         }
       }
+      
       setFiles(Array.from(mergedMap.values()));
     } catch (e: any) {
       setError(e?.message || 'Failed to load files');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   React.useEffect(() => { refresh(); }, [refresh]);
 
@@ -196,8 +234,9 @@ export function MediaLibraryPage() {
       {error && <div className="text-red-500 mb-3">{error}</div>}
       {loading && <div className="text-gray-400 mb-3">Loading…</div>}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-        {files
+      {/* Group files by type */}
+      {(() => {
+        const filteredAndSorted = files
           .filter((f) => {
             const tag = inferType(f.name, f.path, (f as any).metadata)
             return filter === 'ALL' ? true : tag === filter
@@ -210,8 +249,33 @@ export function MediaLibraryPage() {
             if (sortBy === 'NAME_ASC') return a.name.localeCompare(b.name)
             if (sortBy === 'NAME_DESC') return b.name.localeCompare(a.name)
             return 0
-          })
-          .map((f) => {
+          });
+
+        // Group by type
+        const videos = filteredAndSorted.filter(f => inferType(f.name, f.path, (f as any).metadata) === 'VIDEO');
+        const audios = filteredAndSorted.filter(f => inferType(f.name, f.path, (f as any).metadata) === 'AUDIO');
+        const images = filteredAndSorted.filter(f => inferType(f.name, f.path, (f as any).metadata) === 'IMAGE');
+        const others = filteredAndSorted.filter(f => inferType(f.name, f.path, (f as any).metadata) === 'OTHER');
+
+        const renderSection = (title: string, items: typeof filteredAndSorted, icon: React.ReactNode) => {
+          if (filter !== 'ALL' && items.length === 0) return null;
+          
+          return (
+            <div key={title} className="mb-8">
+              <div className="flex items-center gap-2 mb-4">
+                {icon}
+                <h2 className="text-lg font-semibold text-gray-200">{title}</h2>
+                <span className="text-sm text-gray-400">({items.length})</span>
+              </div>
+              
+              {items.length === 0 ? (
+                <div className="text-center py-12 bg-gray-900/50 rounded-xl border border-gray-800">
+                  <div className="text-gray-400 text-sm">No {title.toLowerCase()} uploaded yet</div>
+                  <div className="text-gray-500 text-xs mt-1">Upload files above to get started</div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                  {items.map((f) => {
           const url = MediaService.getPublicUrl(f.path);
           const tag = inferType(f.name, f.path, (f as any).metadata);
           const img = tag === 'IMAGE';
@@ -259,6 +323,9 @@ export function MediaLibraryPage() {
               </div>
               <div className="flex-1">
                 <div className="truncate text-sm text-gray-200">{formatDisplayName(f.name)}</div>
+                <div className="text-xs text-gray-400 mt-1">
+                  Uploaded by: {user?.name || user?.email || 'You'}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 {vid || aud ? (
@@ -283,9 +350,128 @@ export function MediaLibraryPage() {
                 <Button variant="destructive" size="sm" onClick={() => onDelete(f.path)} className="text-xs">Delete</Button>
               </div>
             </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
-        })}
-      </div>
+        };
+
+        // Show all files when filter is ALL, otherwise just show filtered type
+        if (filter === 'ALL') {
+          return (
+            <>
+              {renderSection('Videos', videos, <VideoIcon className="w-5 h-5 text-violet-400" />)}
+              {renderSection('Audio', audios, <Music className="w-5 h-5 text-violet-400" />)}
+              {renderSection('Images', images, <ImageIcon className="w-5 h-5 text-violet-400" />)}
+              {renderSection('Files', others, <FileIcon className="w-5 h-5 text-violet-400" />)}
+              
+              {files.length === 0 && !loading && (
+                <div className="text-center py-20 bg-gray-900/50 rounded-xl border border-gray-800">
+                  <div className="mb-4">
+                    <FileIcon className="w-16 h-16 text-gray-600 mx-auto" />
+                  </div>
+                  <div className="text-gray-400 text-lg font-medium">No media files yet</div>
+                  <div className="text-gray-500 text-sm mt-2">Upload your first file using the button above</div>
+                </div>
+              )}
+            </>
+          );
+        } else {
+          // Show filtered view in grid
+          return (
+            <>
+              {filteredAndSorted.length === 0 && !loading ? (
+                <div className="text-center py-20 bg-gray-900/50 rounded-xl border border-gray-800">
+                  <div className="text-gray-400 text-lg font-medium">No {filter.toLowerCase()} files found</div>
+                  <div className="text-gray-500 text-sm mt-2">Try a different filter or upload new files</div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                  {filteredAndSorted.map((f) => {
+                    const url = MediaService.getPublicUrl(f.path);
+                    const tag = inferType(f.name, f.path, (f as any).metadata);
+                    const img = tag === 'IMAGE';
+                    const vid = tag === 'VIDEO';
+                    const aud = tag === 'AUDIO';
+                    return (
+                      <div key={f.path} className="bg-[#242427] border border-gray-800 rounded-2xl p-3 flex flex-col gap-3">
+                        <div
+                          className="relative w-full h-28 rounded-xl overflow-hidden bg-black flex items-center justify-center cursor-pointer"
+                          onClick={() => (vid || aud) ? togglePlay(f.path) : undefined}
+                        >
+                          {img ? (
+                            <img src={url} alt={f.name} className="w-full h-full object-cover" />
+                          ) : vid ? (
+                            <video
+                              src={url}
+                              className="w-full h-full object-cover"
+                              controls={false}
+                              preload="metadata"
+                              muted
+                              playsInline
+                              ref={setMediaRef(f.path) as any}
+                              onLoadedMetadata={() => initVideoPreview(f.path)}
+                              onLoadedData={() => initVideoPreview(f.path)}
+                            />
+                          ) : aud ? (
+                            <>
+                              <Music className="w-10 h-10 text-violet-500" />
+                              <audio src={url} ref={setMediaRef(f.path) as any} />
+                            </>
+                          ) : (
+                            <FileIcon className="w-10 h-10 text-gray-300" />
+                          )}
+                          <div className="absolute right-2 top-2 rounded-md bg-black/60 p-1">
+                            {vid ? (
+                              <VideoIcon className="w-4 h-4 text-violet-400" />
+                            ) : img ? (
+                              <ImageIcon className="w-4 h-4 text-violet-400" />
+                            ) : aud ? (
+                              <Music className="w-4 h-4 text-violet-400" />
+                            ) : (
+                              <FileIcon className="w-4 h-4 text-violet-400" />
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex-1">
+                          <div className="truncate text-sm text-gray-200">{formatDisplayName(f.name)}</div>
+                          <div className="text-xs text-gray-400 mt-1">
+                            Uploaded by: {user?.name || user?.email || 'You'}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {vid || aud ? (
+                            <div className="group inline-flex items-stretch">
+                              <Button size="sm" onClick={() => togglePlay(f.path)} className="rounded-r-none bg-violet-700 hover:bg-violet-600">Play</Button>
+                              <a href={url} target="_blank" rel="noopener noreferrer" download>
+                                <Button size="sm" className="rounded-l-none bg-violet-800 hover:bg-violet-700 px-2">
+                                  <Download className="w-4 h-4" />
+                                </Button>
+                              </a>
+                            </div>
+                          ) : (
+                            <a href={url} target="_blank" rel="noopener noreferrer" download>
+                              <div className="group inline-flex items-stretch">
+                                <Button size="sm" className="rounded-r-none bg-violet-700 hover:bg-violet-600">Download</Button>
+                                <Button size="sm" className="rounded-l-none bg-violet-800 hover:bg-violet-700 px-2">
+                                  <Download className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </a>
+                          )}
+                          <Button variant="destructive" size="sm" onClick={() => onDelete(f.path)} className="text-xs">Delete</Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          );
+        }
+      })()}
     </div>
   );
 }

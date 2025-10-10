@@ -15,11 +15,13 @@ import { AdminUsers } from '@/pages/admin/admin-users';
 import { AdminMessages } from '@/pages/admin/admin-messages';
 import { SubscriptionManagement } from '@/pages/admin/subscription-management';
 import { SiteCustomization } from '@/pages/admin/site-customization';
+import { SecurityBlocklist } from '@/pages/admin/security-blocklist';
 import { AdminProfile } from '@/pages/admin/admin-profile';
 import { ProfilePage } from '@/pages/dashboard/profile';
 import { StorageNotification } from '@/components/ui/storage-notification';
 import { MediaViewerPage } from '@/pages/media-viewer';
 import { MediaLibraryPage } from '@/pages/dashboard/media-library';
+import { MigrateMediaPage } from '@/pages/dashboard/migrate-media';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -59,6 +61,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
+  const [hasShownWarning, setHasShownWarning] = React.useState(false);
   
   if (isLoading) {
     return (
@@ -68,7 +71,20 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
     );
   }
   
-  if (!user || user.plan !== 'LEGACY') {
+  // Check if user is on admin whitelist
+  const adminEmails = ['davwez@gmail.com', 'davwez88@gmail.com'];
+  const isAdmin = user?.plan === 'LEGACY' && user?.email ? 
+    adminEmails.includes(user.email.toLowerCase()) : 
+    false;
+  
+  if (!user || !isAdmin) {
+    // Show warning only once
+    if (!hasShownWarning) {
+      setHasShownWarning(true);
+      setTimeout(() => {
+        alert('⛔ Admin access denied.\n\nOnly authorized administrator emails can access the admin panel.\n\nYou will be redirected to your dashboard.');
+      }, 100);
+    }
     return <Navigate to="/dashboard" replace />;
   }
   
@@ -139,6 +155,14 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/dashboard/migrate-media"
+          element={
+            <ProtectedRoute>
+              <MigrateMediaPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/view" element={<MediaViewerPage />} />
         <Route
           path="/dashboard/profile"
@@ -161,6 +185,7 @@ function AppRoutes() {
           <Route path="messages" element={<AdminMessages />} />
           <Route path="subscriptions" element={<SubscriptionManagement />} />
           <Route path="customize" element={<SiteCustomization />} />
+          <Route path="security" element={<SecurityBlocklist />} />
           <Route path="profile" element={<AdminProfile />} />
         </Route>
       </Routes>

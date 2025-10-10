@@ -113,25 +113,59 @@ serve(async (req) => {
       console.log('[v4.0-SECURE] No body or invalid JSON, using defaults');
     }
     const forceRelease = body?.emergency_release === true
-    
-    // SECURITY 2: Emergency releases require service role authentication
-    if (forceRelease) {
-      const authHeader = req.headers.get('authorization');
-      const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-      
-      if (!authHeader || !authHeader.includes(serviceRoleKey || '')) {
-        console.error('[SECURITY] Unauthorized emergency release attempt from:', clientIp);
-        return new Response(
-          JSON.stringify({ success: false, error: 'Unauthorized: Emergency release requires service role key' }),
-          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      console.log('[v4.0-SECURE] Authorized emergency release request from:', clientIp);
-    }
-    
-    // Use service role key to bypass RLS for DMS processing
+
+    // Environment
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const supabaseAnon = Deno.env.get('SUPABASE_ANON_KEY') || ''
+    const resendApiKey = Deno.env.get('RESEND_API_KEY') || ''
+    
+    // SECURITY 2: Emergency releases require either service-role auth (global) or a valid user JWT (scoped)
+    let scopedUserId: string | null = null
+    if (forceRelease) {
+      const authHeader = req.headers.get('authorization') || '';
+      const serviceRoleKeyHeaderMatch = supabaseKey && authHeader.includes(supabaseKey)
+      const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+
+      if (serviceRoleKeyHeaderMatch) {
+        console.log('[v4.0-SECURE] Authorized EMERGENCY by service role key from:', clientIp)
+      } else if (bearer) {
+        try {
+          const adminClient = createClient(supabaseUrl, supabaseKey)
+          const { data: userData, error: userError } = await adminClient.auth.getUser(bearer)
+          if (userError || !userData?.user) {
+            console.error('[SECURITY] Invalid JWT for emergency release:', userError)
+            return new Response(
+              JSON.stringify({ success: false, error: 'Unauthorized: Invalid token' }),
+              { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+          }
+          scopedUserId = userData.user.id
+          console.log('[v4.0-SECURE] Authorized EMERGENCY for user:', scopedUserId)
+        } catch (e) {
+          console.error('[SECURITY] Error validating JWT for emergency release:', e)
+          return new Response(
+            JSON.stringify({ success: false, error: 'Unauthorized' }),
+            { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
+      } else {
+        console.error('[SECURITY] Missing authorization for emergency release from:', clientIp)
+        return new Response(
+          JSON.stringify({ success: false, error: 'Unauthorized: Emergency release requires authentication' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+    }
+    
+    // Simple email validation
+    const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    // Minimal HTML sanitization
+    const sanitizeHtml = (html: string) => html
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '')
+    // Use anon JWT if available; otherwise fall back to service-role JWT so the gateway accepts the request
+    const authJwt = supabaseAnon || supabaseKey
     
     if (!supabaseUrl || !supabaseKey) {
       throw new Error('Missing Supabase configuration')
@@ -154,6 +188,7 @@ serve(async (req) => {
     const { data: dmsConfigs, error: dmsConfigError } = await supabase
       .from('dms_configs')
       .select('*')
+      .match(scopedUserId ? { userId: scopedUserId } : {})
 
     if (dmsConfigError) {
       console.error('Error fetching DMS configs:', dmsConfigError)
@@ -242,29 +277,13 @@ serve(async (req) => {
             console.log(`[DEBUG] Message recipientIds:`, messages.map(m => m.recipientIds));
           }
 
-          // Send each message
+          // Send each message (via Resend) and only mark SENT if all recipients succeeded
           if (messages && messages.length > 0) {
             for (const message of messages) {
               console.log(`Sending message ${message.id}: ${message.title}`)
 
-              // Update message status (only status, no sentAt column exists)
-              const { error: updateError } = await supabase
-                .from('messages')
-                .update({ 
-                  status: 'SENT',
-                  updatedAt: new Date().toISOString()
-                })
-                .eq('id', message.id)
-              
-              if (updateError) {
-                console.error(`Error updating message ${message.id} status:`, updateError)
-              } else {
-                console.log(`✅ Message ${message.id} marked as SENT`)
-              }
-
-              // Call send-email function for each recipient
+              let allSent = true
               for (const recipientId of message.recipientIds || []) {
-                // Fetch recipient separately (no FK relationship)
                 const { data: recipient, error: recipientError } = await supabase
                   .from('recipients')
                   .select('*')
@@ -273,36 +292,71 @@ serve(async (req) => {
                 
                 if (recipientError || !recipient) {
                   console.error(`Error fetching recipient ${recipientId}:`, recipientError)
+                  allSent = false
                   continue
                 }
 
                 try {
-                  const emailResponse = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
+                  if (!resendApiKey) {
+                    console.error('[v4.0-SECURE] RESEND_API_KEY not configured');
+                    allSent = false
+                    continue
+                  }
+                  if (!isValidEmail(recipient.email)) {
+                    console.error('[v4.0-SECURE] Invalid recipient email:', recipient.email)
+                    allSent = false
+                    continue
+                  }
+                  const from = 'Rembr <noreply@sugarbox.uk>'
+                  const sanitized = sanitizeHtml(message.content || '')
+                  const resendResponse = await fetch('https://api.resend.com/emails', {
                     method: 'POST',
                     headers: {
-                      'Authorization': `Bearer ${supabaseKey}`,
+                      'Authorization': `Bearer ${resendApiKey}`,
                       'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                      messageId: message.id,
-                      recipientEmail: recipient.email,
-                      recipientName: recipient.name,
-                      subject: message.title,
-                      content: message.content,
-                      messageType: 'EMAIL',
-                      userId: config.userId
+                      from,
+                      to: [recipient.email],
+                      subject: message.title || 'Message',
+                      html: sanitized,
                     }),
                   })
-
-                  if (emailResponse.ok) {
+                  const resendData = await resendResponse.json().catch(() => ({}))
+                  if (resendResponse.ok) {
                     console.log(`✅ Email sent to ${recipient.email}`)
+                    // Increment persistent stats (best effort)
+                    try {
+                      const { error: statsErr } = await supabase.rpc('increment_user_sent', { p_user_id: message.userId || config.userId, p_amount: 1 })
+                      if (statsErr) console.error('[v4.0-SECURE] increment_user_sent error:', statsErr)
+                    } catch (e) {
+                      console.error('[v4.0-SECURE] Failed to increment user stats:', e)
+                    }
                   } else {
-                    const errorText = await emailResponse.text()
-                    console.error(`❌ Failed to send email to ${recipient.email}: ${errorText}`)
+                    console.error(`[v4.0-SECURE] ❌ Resend error for ${recipient.email}:`, resendResponse.status, resendData)
+                    allSent = false
                   }
                 } catch (error) {
-                  console.error(`Error sending email to ${recipient.email}:`, error)
+                  console.error(`[v4.0-SECURE] Error sending email to ${recipient.email}:`, error)
+                  allSent = false
                 }
+              }
+
+              if (allSent) {
+                const { error: updateError } = await supabase
+                  .from('messages')
+                  .update({ 
+                    status: 'SENT',
+                    updatedAt: new Date().toISOString()
+                  })
+                  .eq('id', message.id)
+                if (updateError) {
+                  console.error(`Error updating message ${message.id} status:`, updateError)
+                } else {
+                  console.log(`✅ Message ${message.id} marked as SENT`)
+                }
+              } else {
+                console.log(`⚠️ Message ${message.id} not marked as SENT due to email failures`)
               }
             }
           }
@@ -330,28 +384,13 @@ serve(async (req) => {
     if (scheduledError) {
       console.error('Error fetching scheduled messages:', scheduledError)
     } else if (scheduledMessages && scheduledMessages.length > 0) {
-      console.log(`Found ${scheduledMessages.length} scheduled messages ready to send`)
+      console.log(`[v4.0-SECURE] Found ${scheduledMessages.length} scheduled messages ready to send`)
       
       for (const message of scheduledMessages) {
-        console.log(`Processing scheduled message ${message.id}: ${message.title}`)
+        console.log(`[v4.0-SECURE] Processing scheduled message ${message.id}: ${message.title}`)
         
-        // Update message status to SENT
-        const { error: updateError } = await supabase
-          .from('messages')
-          .update({ 
-            status: 'SENT',
-            updatedAt: new Date().toISOString()
-          })
-          .eq('id', message.id)
-        
-        if (updateError) {
-          console.error(`Error updating message ${message.id} status:`, updateError)
-          continue
-        }
-        
-        console.log(`✅ Message ${message.id} marked as SENT`)
-        
-        // Send emails to all recipients
+        // Send emails to all recipients first
+        let emailSuccess = true
         for (const recipientId of message.recipientIds || []) {
           const { data: recipient, error: recipientError } = await supabase
             .from('recipients')
@@ -365,37 +404,66 @@ serve(async (req) => {
           }
           
           try {
-            const emailResponse = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
+            if (!resendApiKey) {
+              console.error('[v4.0-SECURE] RESEND_API_KEY not configured');
+              emailSuccess = false
+              continue
+            }
+            if (!isValidEmail(recipient.email)) {
+              console.error('[v4.0-SECURE] Invalid recipient email:', recipient.email)
+              emailSuccess = false
+              continue
+            }
+            const from = 'Rembr <noreply@sugarbox.uk>'
+            const sanitized = sanitizeHtml(message.content || '')
+            const resendResponse = await fetch('https://api.resend.com/emails', {
               method: 'POST',
               headers: {
-                'Authorization': `Bearer ${supabaseKey}`,
+                'Authorization': `Bearer ${resendApiKey}`,
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                messageId: message.id,
-                recipientEmail: recipient.email,
-                recipientName: recipient.name,
-                subject: message.title,
-                content: message.content,
-                messageType: (message.types && message.types.length > 0) ? message.types[0] : 'EMAIL',
-                userId: message.userId
+                from,
+                to: [recipient.email],
+                subject: message.title || 'Message',
+                html: sanitized,
               }),
             })
-            
-            if (emailResponse.ok) {
-              console.log(`✅ Email sent to ${recipient.email}`)
+            const resendData = await resendResponse.json().catch(() => ({}))
+            if (resendResponse.ok) {
+              console.log(`[v4.0-SECURE] ✅ Email sent to ${recipient.email}`)
               scheduledCount++
             } else {
-              const errorText = await emailResponse.text()
-              console.error(`❌ Failed to send email to ${recipient.email}: ${errorText}`)
+              console.error(`[v4.0-SECURE] ❌ Resend error for ${recipient.email}:`, resendResponse.status, resendData)
+              emailSuccess = false
             }
           } catch (error) {
-            console.error(`Error sending email to ${recipient.email}:`, error)
+            console.error(`[v4.0-SECURE] Error sending email to ${recipient.email}:`, error)
+            emailSuccess = false
           }
+        }
+        
+        // Only update status to SENT if all emails were sent successfully
+        if (emailSuccess) {
+          const { error: updateError } = await supabase
+            .from('messages')
+            .update({ 
+              status: 'SENT',
+              updatedAt: new Date().toISOString()
+            })
+            .eq('id', message.id)
+          
+          if (updateError) {
+            console.error(`[v4.0-SECURE] Error updating message ${message.id} status:`, updateError)
+          } else {
+            console.log(`[v4.0-SECURE] ✅ Message ${message.id} marked as SENT`)
+          }
+        } else {
+          console.log(`[v4.0-SECURE] ⚠️ Message ${message.id} not marked as SENT due to email failures`)
         }
       }
     } else {
-      console.log('No scheduled messages ready to send')
+      console.log('[v4.0-SECURE] No scheduled messages ready to send')
     }
 
     const summary = forceRelease 

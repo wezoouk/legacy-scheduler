@@ -8,6 +8,9 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/lib/auth-context';
 import { useMessages } from '@/lib/use-messages';
 import { useRecipients } from '@/lib/use-recipients';
+import { supabase } from '@/lib/supabase';
+import { AdminMediaViewer } from '@/components/admin/admin-media-viewer';
+import { getUserMediaStats, formatBytes } from '@/lib/admin-media-access';
 import { 
   Users, 
   Search, 
@@ -29,7 +32,10 @@ import {
   HardDrive,
   Activity,
   TrendingUp,
-  Database
+  Database,
+  Eye,
+  Image,
+  FolderArchive
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '../../../hooks/use-toast';
@@ -39,6 +45,8 @@ interface User {
   name: string;
   email: string;
   plan: 'FREE' | 'PLUS' | 'LEGACY';
+  image?: string;
+  timezone?: string;
   createdAt: Date;
   lastLogin?: Date;
   totalMessages: number;
@@ -46,6 +54,8 @@ interface User {
   // Detailed statistics
   videoMessages: number;
   audioMessages: number;
+  imageFiles: number;
+  otherFiles: number;
   dmsMessages: number;
   emailMessages: number;
   fileAttachments: number;
@@ -62,6 +72,7 @@ export function AdminUsers() {
   const [selectedPlan, setSelectedPlan] = useState<string>('all');
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', timezone: '' });
+  const [viewingMediaUser, setViewingMediaUser] = useState<User | null>(null);
   const { user: currentUser } = useAuth();
   const { messages } = useMessages();
   const { recipients } = useRecipients();
@@ -74,29 +85,205 @@ export function AdminUsers() {
     failed: messages.filter(msg => msg.status === 'FAILED').length,
   };
 
-  // Get real user data from localStorage with detailed statistics
-  const getRealUserData = (): User[] => {
+  // Get real user data from Supabase with detailed statistics
+  const getRealUserData = async (): Promise<User[]> => {
+    console.log('🚀 Starting getRealUserData...');
+    const startTime = Date.now();
+    
     try {
-      const usersData = localStorage.getItem('legacyScheduler_users');
-      const storedUsers = usersData ? JSON.parse(usersData) : [];
+      let allUsers: any[] = [];
       
-      return storedUsers.map((user: any) => {
-        // Get messages for this user
-        const userMessagesData = localStorage.getItem(`messages_${user.id}`);
-        const userMessages = userMessagesData ? JSON.parse(userMessagesData) : [];
+      // Try to fetch ALL users from Supabase auth admin API first
+      console.log('🔍 Attempting to fetch all users from admin API...');
+      try {
+        const { data: adminData, error: adminError } = await supabase.auth.admin.listUsers();
         
-        // Get recipients for this user
-        const userRecipientsData = localStorage.getItem(`recipients_${user.id}`);
-        const userRecipients = userRecipientsData ? JSON.parse(userRecipientsData) : [];
+        if (!adminError && adminData?.users && adminData.users.length > 0) {
+          console.log('✅ Admin API worked! Found', adminData.users.length, 'users');
+          allUsers = adminData.users;
+        } else {
+          console.log('⚠️ Admin API not available or no users found:', adminError);
+        }
+      } catch (adminApiError) {
+        console.log('⚠️ Admin API call failed (expected on client-side):', adminApiError);
+      }
+      
+      // Fallback: Try to query profiles table for all users
+      if (allUsers.length === 0) {
+        console.log('📋 Falling back to profiles table...');
         
-        // Calculate detailed statistics
-        const videoMessages = userMessages.filter((msg: any) => 
-          (msg.types && msg.types.includes('VIDEO')) || msg.type === 'VIDEO' || msg.cipherBlobUrl || msg.videoRecording
-        ).length;
+        try {
+          // Query the profiles table (if it exists)
+          console.log('🔍 Querying profiles table...');
+          const { data: profilesData, error: profilesError } = await supabase
+            .from('profiles')
+            .select('*')
+            .order('created_at', { ascending: false });
+          
+          console.log('📊 Profiles query result:', { 
+            data: profilesData, 
+            error: profilesError,
+            dataLength: profilesData?.length 
+          });
+          
+          if (profilesError) {
+            console.error('❌ Profiles query error:', profilesError);
+            console.error('Error code:', profilesError.code);
+            console.error('Error message:', profilesError.message);
+            console.error('Error details:', profilesError.details);
+          }
+          
+          if (!profilesError && profilesData && profilesData.length > 0) {
+            console.log(`✅ Found ${profilesData.length} users from profiles table`);
+            
+            // Convert profiles to user format
+            // Note: We can only get image for the current user (admin API requires service_role key)
+            const { data: { user: currentAuthUser } } = await supabase.auth.getUser();
+            
+            allUsers = profilesData.map((profile: any) => {
+              let userImage = undefined;
+              
+              // If this is the current user, try to get their image from auth metadata
+              if (profile.id === currentAuthUser?.id && currentAuthUser?.user_metadata?.image) {
+                userImage = currentAuthUser.user_metadata.image;
+                console.log(`  📸 Image for ${profile.email} (current user):`, userImage);
+              } else {
+                console.log(`  📸 Image for ${profile.email}: none (not current user, admin API required)`);
+              }
+              
+              return {
+                id: profile.id,
+                email: profile.email,
+                created_at: profile.created_at,
+                last_sign_in_at: profile.last_login,
+                user_metadata: {
+                  name: profile.name,
+                  plan: profile.plan,
+                  timezone: profile.timezone,
+                  image: userImage
+                }
+              };
+            });
+          } else {
+            console.log('⚠️ Profiles table not found or empty, falling back to current user');
+            
+            // Last resort: show current user only
+            const { data: { user: currentAuthUser }, error: currentUserError } = await supabase.auth.getUser();
+            
+            if (currentUserError || !currentAuthUser) {
+              console.log('❌ No current user found');
+              return [];
+            }
+            
+            allUsers = [currentAuthUser];
+            console.log('ℹ️ Showing current user only (profiles table not set up)');
+          }
+        } catch (queryError) {
+          console.error('❌ Error querying profiles:', queryError);
+          
+          // Last resort: show current user only
+          const { data: { user: currentAuthUser } } = await supabase.auth.getUser();
+          if (currentAuthUser) {
+            allUsers = [currentAuthUser];
+          }
+        }
+      }
+      
+      // Process all users
+      console.log('👥 Processing', allUsers.length, 'users...');
+      
+      const processedUsers = [];
+      
+      for (const authUser of allUsers) {
+        console.log(`📧 Fetching data for user: ${authUser.email} (${authUser.id})`);
         
-        const audioMessages = userMessages.filter((msg: any) => 
-          (msg.types && msg.types.includes('VOICE')) || msg.type === 'VOICE' || msg.audioRecording
-        ).length;
+        // Fetch messages for THIS user
+        const { data: dbMessages, error: msgsError } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('userId', authUser.id);
+        
+        console.log(`  📨 Messages: ${dbMessages?.length || 0}`, msgsError ? `Error: ${msgsError.message}` : '');
+        
+        // Fetch recipients for THIS user
+        const { data: dbRecipients, error: recsError } = await supabase
+          .from('recipients')
+          .select('*')
+          .eq('userId', authUser.id);
+        
+        console.log(`  👥 Recipients: ${dbRecipients?.length || 0}`, recsError ? `Error: ${recsError.message}` : '');
+        
+        const userMessages = dbMessages || [];
+        const userRecipients = dbRecipients || [];
+        
+        console.log(`  ✅ Final counts - Messages: ${userMessages.length}, Recipients: ${userRecipients.length}`);
+        
+        // Fetch storage for THIS user AND count media files
+        let userStorageUsed = 0;
+        let videoFileCount = 0;
+        let audioFileCount = 0;
+        let imageFileCount = 0;
+        let otherFileCount = 0;
+        
+        const folders = ['uploads', 'audio', 'recordings', 'voice'];
+        const videoExtensions = /\.(mp4|mov|m4v|avi|mkv)$/i;
+        const audioExtensions = /\.(mp3|wav|ogg|m4a|aac|flac)$/i;
+        const imageExtensions = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i;
+        
+        try {
+          for (const folder of folders) {
+            const { data: files } = await supabase.storage
+              .from('media')
+              .list(`${folder}/${authUser.id}`, { limit: 1000 });
+          
+          if (files) {
+            for (const file of files) {
+              const size = (file.metadata as any)?.size || 0;
+              userStorageUsed += size;
+              
+              // Get mime type from metadata
+              const mimeType = (file.metadata as any)?.mimetype || '';
+              
+              // Smart detection for .webm files (can be video OR audio)
+              if (file.name.toLowerCase().endsWith('.webm')) {
+                // Check mime type first
+                if (mimeType.startsWith('audio/')) {
+                  audioFileCount++;
+                } else if (mimeType.startsWith('video/')) {
+                  videoFileCount++;
+                } else {
+                  // Fallback: Check folder name
+                  if (folder === 'audio' || folder === 'voice') {
+                    audioFileCount++;
+                  } else {
+                    videoFileCount++;
+                  }
+                }
+              }
+              // Regular file type detection
+              else if (videoExtensions.test(file.name)) {
+                videoFileCount++;
+              } else if (audioExtensions.test(file.name)) {
+                audioFileCount++;
+              } else if (imageExtensions.test(file.name)) {
+                imageFileCount++;
+              } else {
+                // Everything else (PDFs, documents, etc.)
+                otherFileCount++;
+              }
+            }
+          }
+          }
+        } catch (storageError) {
+          console.warn('⚠️ Error fetching storage for user:', authUser.email, storageError);
+          // Continue with 0 counts if storage fails
+        }
+        
+        console.log(`  🎬 Media files - Videos: ${videoFileCount}, Audio: ${audioFileCount}, Images: ${imageFileCount}, Other: ${otherFileCount}`);
+        
+        // Calculate stats for THIS user
+        const userVideoMessages = videoFileCount; // Use actual file count instead of message count
+        const userAudioMessages = audioFileCount; // Use actual file count instead of message count
         
         const dmsMessages = userMessages.filter((msg: any) => 
           msg.scope === 'DMS'
@@ -117,9 +304,22 @@ export function AdminUsers() {
           msg.status === 'SCHEDULED'
         ).length;
         
-        const sentMessages = userMessages.filter((msg: any) => 
-          msg.status === 'SENT'
-        ).length;
+        // Prefer persistent total from user_stats if available
+        let sentMessages = 0;
+        try {
+          const { data: statsRow } = await supabase
+            .from('user_stats')
+            .select('total_sent_emails')
+            .eq('user_id', authUser.id)
+            .maybeSingle();
+          if (statsRow && typeof statsRow.total_sent_emails === 'number') {
+            sentMessages = statsRow.total_sent_emails;
+          } else {
+            sentMessages = userMessages.filter((msg: any) => msg.status === 'SENT').length;
+          }
+        } catch (e) {
+          sentMessages = userMessages.filter((msg: any) => msg.status === 'SENT').length;
+        }
         
         const draftMessages = userMessages.filter((msg: any) => 
           msg.status === 'DRAFT'
@@ -129,17 +329,6 @@ export function AdminUsers() {
           msg.status === 'FAILED'
         ).length;
         
-        // Calculate storage usage (rough estimate)
-        const totalStorageUsed = userMessages.reduce((total: number, msg: any) => {
-          let size = 0;
-          if (msg.cipherBlobUrl || msg.videoRecording) size += 50 * 1024 * 1024; // 50MB per video
-          if (msg.audioRecording) size += 5 * 1024 * 1024; // 5MB per audio
-          if (msg.attachments && Array.isArray(msg.attachments)) {
-            size += msg.attachments.reduce((attSize: number, att: any) => attSize + (att.size || 0), 0);
-          }
-          return total + size;
-        }, 0);
-        
         // Find last activity (most recent message update)
         const lastActivity = userMessages.length > 0 
           ? new Date(Math.max(...userMessages.map((msg: any) => 
@@ -147,17 +336,30 @@ export function AdminUsers() {
             )))
           : undefined;
         
-        return {
-          id: user.id,
-          name: user.name || 'Unknown User',
-          email: user.email,
-          plan: user.plan || 'FREE',
-          createdAt: new Date(user.createdAt || '2024-01-01'),
-          lastLogin: user.lastLogin ? new Date(user.lastLogin) : undefined,
+        // For current user, try to get image from auth context if not in user_metadata
+        let userImage = authUser.user_metadata?.image;
+        if (!userImage && authUser.id === currentUser?.id && currentUser?.image) {
+          userImage = currentUser.image;
+          console.log(`  📸 Using image from auth context for ${authUser.email}:`, userImage);
+        } else {
+          console.log(`  📸 Profile image for ${authUser.email}:`, userImage || '(none)');
+        }
+        
+        processedUsers.push({
+          id: authUser.id,
+          name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Unknown User',
+          email: authUser.email || 'No email',
+          plan: (authUser.user_metadata?.plan || 'FREE') as 'FREE' | 'PLUS' | 'LEGACY',
+          image: userImage,
+          timezone: authUser.user_metadata?.timezone || 'Europe/London',
+          createdAt: new Date(authUser.created_at || '2024-01-01'),
+          lastLogin: authUser.last_sign_in_at ? new Date(authUser.last_sign_in_at) : undefined,
           totalMessages: userMessages.length,
           totalRecipients: userRecipients.length,
-          videoMessages,
-          audioMessages,
+          videoMessages: userVideoMessages,
+          audioMessages: userAudioMessages,
+          imageFiles: imageFileCount,
+          otherFiles: otherFileCount,
           dmsMessages,
           emailMessages,
           fileAttachments,
@@ -165,25 +367,48 @@ export function AdminUsers() {
           sentMessages,
           draftMessages,
           failedMessages,
-          totalStorageUsed,
+          totalStorageUsed: userStorageUsed,
           lastActivity,
-        };
-      });
+        });
+        
+        console.log('👤 Processed user:', authUser.email, 'messages:', userMessages.length);
+      }
+      
+      console.log('✅ All users processed:', processedUsers);
+      console.log(`⏱️ getRealUserData completed in ${Date.now() - startTime}ms`);
+      return processedUsers;
     } catch (error) {
-      console.error('Error loading real user data:', error);
+      console.error('❌ Error loading real user data:', error);
+      console.error('Error details:', error);
+      console.log(`⏱️ getRealUserData failed after ${Date.now() - startTime}ms`);
       return [];
     }
   };
   const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // Load users on component mount
   useEffect(() => {
-    const realUsers = getRealUserData();
+    const loadUsers = async () => {
+      try {
+        setLoading(true);
+        console.log('📥 Loading users...');
+        const realUsers = await getRealUserData();
+        console.log('✅ Users loaded:', realUsers.length);
     setUsers(realUsers);
+      } catch (error) {
+        console.error('❌ Failed to load users:', error);
+        setUsers([]);
+      } finally {
+        setLoading(false);
+        console.log('✅ Loading complete');
+      }
+    };
+    loadUsers();
   }, []);
 
   // Save user function
-  const saveUser = (userData: User) => {
+  const saveUser = async (userData: User) => {
     try {
       console.log('Saving user:', userData);
       const usersData = localStorage.getItem('legacyScheduler_users');
@@ -218,7 +443,7 @@ export function AdminUsers() {
       
       localStorage.setItem('legacyScheduler_users', JSON.stringify(storedUsers));
       console.log('Saved to localStorage, refreshing user list...');
-      const refreshedUsers = getRealUserData();
+      const refreshedUsers = await getRealUserData();
       console.log('Refreshed users:', refreshedUsers.length);
       setUsers(refreshedUsers);
       setEditingUser(null);
@@ -238,32 +463,50 @@ export function AdminUsers() {
     }
   };
 
-  // Load real user data on component mount and when messages/recipients change
+  // Refresh users when messages/recipients change (debounced)
   useEffect(() => {
-    const realUsers = getRealUserData();
-    console.log('Loading real user data:', realUsers);
-    setUsers(realUsers);
-  }, [currentUser, messages, recipients]);
-
-  const changePlan = (userId: string, newPlan: 'FREE' | 'PLUS' | 'LEGACY') => {
-    // Update in localStorage
-    try {
-      const usersData = localStorage.getItem('legacyScheduler_users');
-      if (usersData) {
-        const storedUsers = JSON.parse(usersData);
-        const updatedUsers = storedUsers.map((user: any) => 
-          user.id === userId ? { ...user, plan: newPlan } : user
-        );
-        localStorage.setItem('legacyScheduler_users', JSON.stringify(updatedUsers));
-      }
+    // Skip if still loading initial data
+    if (loading) return;
+    
+    const loadUsers = async () => {
+      try {
+        console.log('🔄 Refreshing users due to messages/recipients change...');
+        const realUsers = await getRealUserData();
+        console.log('✅ Users refreshed:', realUsers.length);
+        setUsers(realUsers);
     } catch (error) {
-      console.error('Error updating user plan in localStorage:', error);
+        console.error('❌ Failed to refresh users:', error);
+      }
+    };
+    loadUsers();
+  }, [messages, recipients]);
+
+  const changePlan = async (userId: string, newPlan: 'FREE' | 'PLUS' | 'LEGACY') => {
+    try {
+      // Update in Supabase user metadata
+      const { error } = await supabase.auth.admin.updateUserById(userId, {
+        user_metadata: { plan: newPlan }
+      });
+      
+      if (error) {
+        console.error('Error updating user plan in Supabase:', error);
+        alert('Failed to update user plan');
+        return;
     }
     
     // Update in component state
     setUsers(prev => prev.map(user => 
       user.id === userId ? { ...user, plan: newPlan } : user
     ));
+      
+      toast({
+        title: 'Plan Updated',
+        description: `User plan changed to ${newPlan}`,
+      });
+    } catch (error) {
+      console.error('Error updating user plan:', error);
+      alert('Failed to update user plan');
+    }
   };
 
   const handleEditUser = (user: User) => {
@@ -275,24 +518,33 @@ export function AdminUsers() {
     });
   };
 
-  const saveUserChanges = () => {
+  const saveUserChanges = async () => {
     if (!editingUser) return;
 
     try {
-      // Update in localStorage users database
-      const usersData = localStorage.getItem('legacyScheduler_users');
-      if (usersData) {
-        const storedUsers = JSON.parse(usersData);
-        const updatedUsers = storedUsers.map((user: any) => 
-          user.id === editingUser.id ? { 
-            ...user, 
-            name: editForm.name,
+      // Check if editing self
+      const isEditingSelf = editingUser.id === currentUser?.id;
+      
+      if (isEditingSelf) {
+        // Use client-side updateUser for self (works without admin API)
+        const { error } = await supabase.auth.updateUser({
             email: editForm.email,
+          data: {
+            name: editForm.name,
             timezone: editForm.timezone,
-            updatedAt: new Date().toISOString()
-          } : user
-        );
-        localStorage.setItem('legacyScheduler_users', JSON.stringify(updatedUsers));
+            plan: editingUser.plan,
+          }
+        });
+        
+        if (error) {
+          console.error('Error updating user in Supabase:', error);
+          alert('Failed to update user: ' + error.message);
+          return;
+        }
+      } else {
+        // For other users, requires admin API (not yet implemented)
+        alert('Editing other users requires backend admin API setup. See USER_MANAGEMENT_SETUP.md');
+        return;
       }
       
       // Update in component state
@@ -301,53 +553,63 @@ export function AdminUsers() {
           ...user, 
           name: editForm.name,
           email: editForm.email,
-          timezone: editForm.timezone
+          plan: editingUser.plan,
         } : user
       ));
       
-      // Update current user session if editing self
-      if (editingUser.id === currentUser?.id) {
-        const updatedCurrentUser = {
-          ...currentUser,
-          name: editForm.name,
-          email: editForm.email,
-          timezone: editForm.timezone,
-        };
-        localStorage.setItem('legacyScheduler_user', JSON.stringify(updatedCurrentUser));
-      }
-      
       setEditingUser(null);
-      alert('User updated successfully!');
+      
+      const planChanged = currentUser?.plan !== editingUser.plan;
+      
+      toast({
+        title: 'User Updated',
+        description: `Successfully updated ${editForm.name}${editingUser.plan === 'LEGACY' ? ' (Now Admin)' : ''}`,
+      });
+      
+      // If editing self and changed plan, reload
+      if (isEditingSelf && planChanged) {
+        setTimeout(() => {
+          alert(`✅ Plan changed to ${editingUser.plan}! Reloading page to apply new permissions...`);
+          window.location.reload();
+        }, 500);
+      }
     } catch (error) {
       console.error('Error updating user:', error);
-      alert('Failed to update user');
+      alert('Failed to update user: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
 
-  const deleteUser = (userId: string) => {
+  const deleteUser = async (userId: string) => {
     if (userId === currentUser?.id) {
       alert('You cannot delete your own account');
       return;
     }
-    if (confirm('Are you sure you want to delete this user?')) {
-      // Remove from localStorage
+    if (confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
       try {
-        const usersData = localStorage.getItem('legacyScheduler_users');
-        if (usersData) {
-          const storedUsers = JSON.parse(usersData);
-          const updatedUsers = storedUsers.filter((user: any) => user.id !== userId);
-          localStorage.setItem('legacyScheduler_users', JSON.stringify(updatedUsers));
+        // Delete from Supabase
+        const { error } = await supabase.auth.admin.deleteUser(userId);
+        
+        if (error) {
+          console.error('Error deleting user from Supabase:', error);
+          alert('Failed to delete user');
+          return;
         }
         
-        // Also remove user's messages and recipients
+        // Also remove user's messages and recipients from localStorage
         localStorage.removeItem(`messages_${userId}`);
         localStorage.removeItem(`recipients_${userId}`);
-      } catch (error) {
-        console.error('Error deleting user from localStorage:', error);
-      }
       
       // Update component state
       setUsers(prev => prev.filter(user => user.id !== userId));
+        
+        toast({
+          title: 'User Deleted',
+          description: 'User account has been permanently deleted',
+        });
+      } catch (error) {
+        console.error('Error deleting user:', error);
+        alert('Failed to delete user');
+      }
     }
   };
 
@@ -371,8 +633,8 @@ export function AdminUsers() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">User Management</h1>
-          <p className="text-gray-600 mt-2">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">User Management</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-2">
             Manage platform users and their access levels
           </p>
         </div>
@@ -387,6 +649,8 @@ export function AdminUsers() {
             totalRecipients: 0,
             videoMessages: 0,
             audioMessages: 0,
+            imageFiles: 0,
+            otherFiles: 0,
             dmsMessages: 0,
             emailMessages: 0,
             fileAttachments: 0,
@@ -438,27 +702,81 @@ export function AdminUsers() {
       {/* Users List */}
       <Card>
         <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
           <CardTitle>Platform Users ({filteredUsers.length})</CardTitle>
           <CardDescription>
             Manage user accounts and permissions
           </CardDescription>
+            </div>
+            <Badge variant="outline" className="bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800">
+              <AlertCircle className="h-3 w-3 mr-1" />
+              Backend Setup Required
+            </Badge>
+          </div>
         </CardHeader>
         <CardContent>
+          {loading ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading users from Supabase...</p>
+            </div>
+          ) : (
           <div className="space-y-4">
-            {filteredUsers.map((user) => (
-              <div key={user.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+              {filteredUsers.map((user) => {
+                // Debug: Log user image in render
+                if (user.email === 'davwez@gmail.com') {
+                  console.log('🖼️ Rendering user davwez with image:', user.image);
+                }
+                
+                return (
+              <div key={user.id} className="flex items-center justify-between p-4 border dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                 <div className="flex items-center space-x-4">
-                  <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                    <Users className="w-5 h-5 text-gray-600" />
+                  {user.image ? (
+                    <img 
+                      src={user.image} 
+                      alt={user.name}
+                      className="w-10 h-10 rounded-full object-cover border-2 border-gray-200 dark:border-gray-700"
+                      onError={(e) => {
+                        // Fallback to initials if image fails to load
+                        console.error('❌ Image failed to load for', user.name, '- URL:', user.image);
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        target.nextElementSibling?.classList.remove('hidden');
+                      }}
+                    />
+                  ) : null}
+                  <div 
+                    className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm ${
+                      user.image ? 'hidden' : ''
+                    }`}
+                    style={{
+                      backgroundColor: `hsl(${
+                        (user.name.charCodeAt(0) + user.name.charCodeAt(user.name.length - 1)) % 360
+                      }, 65%, 50%)`
+                    }}
+                  >
+                    {user.name.charAt(0).toUpperCase()}{user.name.split(' ')[1]?.charAt(0).toUpperCase() || user.name.charAt(1)?.toUpperCase() || ''}
                   </div>
                   <div>
                     <div className="flex items-center space-x-2">
-                      <h3 className="font-semibold text-gray-900">{user.name}</h3>
+                      <h3 className="font-semibold text-gray-900 dark:text-white">{user.name}</h3>
                       <Badge className={getPlanColor(user.plan)}>
                         {user.plan}
                       </Badge>
+                      {user.plan === 'LEGACY' && (
+                        <Badge className="bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">
+                          <Shield className="h-3 w-3 mr-1" />
+                          Admin
+                        </Badge>
+                      )}
+                      {user.id === currentUser?.id && (
+                        <Badge variant="outline" className="text-xs">
+                          You
+                        </Badge>
+                      )}
                     </div>
-                    <p className="text-sm text-gray-500">{user.email}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
                     <div className="flex items-center space-x-4 mt-1 text-xs text-gray-400">
                       <span>Joined {format(user.createdAt, 'MMM d, yyyy')}</span>
                       {user.lastLogin && (
@@ -473,39 +791,52 @@ export function AdminUsers() {
 
                 <div className="flex items-center space-x-6">
                   <div className="text-center">
-                    <div className="text-lg font-semibold text-gray-900">{user.totalMessages}</div>
-                    <div className="text-xs text-gray-500">Messages</div>
+                    <div className="text-lg font-semibold text-gray-900 dark:text-white">{user.totalMessages}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Messages</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-lg font-semibold text-gray-900">{user.totalRecipients}</div>
-                    <div className="text-xs text-gray-500">Recipients</div>
+                    <div className="text-lg font-semibold text-gray-900 dark:text-white">{user.totalRecipients}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Recipients</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-lg font-semibold text-gray-900">{user.videoMessages}</div>
-                    <div className="text-xs text-gray-500">Videos</div>
+                    <div className="text-lg font-semibold text-gray-900 dark:text-white">{user.videoMessages}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Videos</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-lg font-semibold text-gray-900">{user.audioMessages}</div>
-                    <div className="text-xs text-gray-500">Audio</div>
+                    <div className="text-lg font-semibold text-gray-900 dark:text-white">{user.audioMessages}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Audio</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-lg font-semibold text-gray-900">{user.dmsMessages}</div>
-                    <div className="text-xs text-gray-500">DMS</div>
+                    <div className="text-lg font-semibold text-gray-900 dark:text-white">{user.imageFiles}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Images</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-lg font-semibold text-gray-900">{user.sentMessages}</div>
-                    <div className="text-xs text-gray-500">Sent</div>
+                    <div className="text-lg font-semibold text-gray-900 dark:text-white">{user.otherFiles}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Other</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-sm font-semibold text-gray-700">
+                    <div className="text-lg font-semibold text-gray-900 dark:text-white">{user.dmsMessages}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">DMS</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-lg font-semibold text-gray-900 dark:text-white">{user.sentMessages}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Sent</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                       {(user.totalStorageUsed / (1024 * 1024)).toFixed(1)}MB
                     </div>
-                    <div className="text-xs text-gray-500">Storage</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Storage</div>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Button variant="outline" size="sm">
-                      <Edit className="w-4 h-4 mr-1" />
-                      Edit
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setViewingMediaUser(user)}
+                      title="View user media"
+                    >
+                      <Eye className="w-4 h-4 mr-1" />
+                      Media
                     </Button>
                     <Button 
                       variant="outline" 
@@ -515,19 +846,10 @@ export function AdminUsers() {
                       <Edit className="w-4 h-4 mr-1" />
                       {user.id === currentUser?.id ? 'Edit (You)' : 'Edit'}
                     </Button>
-                    <select
-                      value={user.plan}
-                      onChange={(e) => changePlan(user.id, e.target.value as any)}
-                      className="px-2 py-1 text-xs border rounded"
-                    >
-                      <option value="FREE">FREE</option>
-                      <option value="PLUS">PLUS</option>
-                      <option value="LEGACY">LEGACY</option>
-                    </select>
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      className="text-red-600 hover:text-red-700"
+                      className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                       onClick={() => deleteUser(user.id)}
                       disabled={user.id === currentUser?.id}
                     >
@@ -536,24 +858,26 @@ export function AdminUsers() {
                   </div>
                 </div>
               </div>
-            ))}
+                );
+              })}
             
-            {filteredUsers.length === 0 && (
+            {filteredUsers.length === 0 && !loading && (
               <div className="text-center py-8 text-gray-500">
                 <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
                 <p>No users found matching your criteria</p>
               </div>
             )}
           </div>
+          )}
         </CardContent>
       </Card>
 
       {/* Edit User Dialog */}
       {editingUser && (
         <Card className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl p-6 w-full max-w-md">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Edit User</h3>
+              <h3 className="text-lg font-semibold dark:text-white">Edit User</h3>
               <Button variant="ghost" size="sm" onClick={() => setEditingUser(null)}>
                 <X className="w-4 h-4" />
               </Button>
@@ -587,7 +911,7 @@ export function AdminUsers() {
                   id="edit-timezone"
                   value={editForm.timezone}
                   onChange={(e) => setEditForm(prev => ({ ...prev, timezone: e.target.value }))}
-                  className="w-full px-3 py-2 border border-input rounded-md text-sm"
+                  className="w-full px-3 py-2 border border-input rounded-md text-sm bg-background dark:bg-gray-800"
                 >
                   <option value="Europe/London">Europe/London</option>
                   <option value="America/New_York">America/New_York</option>
@@ -602,13 +926,21 @@ export function AdminUsers() {
                 </select>
               </div>
               
-              <div className="flex items-center justify-between pt-2">
-                <Badge className={getPlanColor(editingUser.plan)}>
-                  {editingUser.plan} Plan
-                </Badge>
-                <span className="text-sm text-muted-foreground">
-                  Use the dropdown above to change plan
-                </span>
+              <div>
+                <Label htmlFor="edit-plan">Plan</Label>
+                <select
+                  id="edit-plan"
+                  value={editingUser.plan}
+                  onChange={(e) => setEditingUser({ ...editingUser, plan: e.target.value as 'FREE' | 'PLUS' | 'LEGACY' })}
+                  className="w-full px-3 py-2 border border-input rounded-md text-sm bg-background dark:bg-gray-800"
+                >
+                  <option value="FREE">FREE</option>
+                  <option value="PLUS">PLUS</option>
+                  <option value="LEGACY">LEGACY (Admin)</option>
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  LEGACY plan grants full admin access
+                </p>
               </div>
             </div>
             
@@ -691,35 +1023,43 @@ export function AdminUsers() {
         </Card>
       )}
 
-      {/* Debug Info */}
-      <Card className="mb-4">
+      {/* Setup Notice */}
+      <Card className="mb-4 border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800">
         <CardHeader>
-          <CardTitle className="text-lg">Debug Information</CardTitle>
+          <CardTitle className="text-lg flex items-center text-amber-900 dark:text-amber-200">
+            <AlertCircle className="h-5 w-5 mr-2" />
+            {currentUser?.plan !== 'LEGACY' ? 'Admin Access Required' : 'Backend Setup Required'}
+          </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <strong>Users in State:</strong> {users.length}
+        <CardContent className="text-sm text-amber-800 dark:text-amber-300">
+          {currentUser?.plan !== 'LEGACY' ? (
+            <>
+              <p className="mb-3">
+                You're currently on the <strong>{currentUser?.plan}</strong> plan. To access full user management features, upgrade to LEGACY (Admin) plan.
+              </p>
+              <div className="bg-amber-100 dark:bg-amber-900 border border-amber-300 dark:border-amber-700 rounded-lg p-3 mb-3">
+                <p className="font-semibold mb-2">👑 Quick Upgrade:</p>
+                <ol className="list-decimal list-inside space-y-1 text-xs">
+                  <li>Go to <strong>Dashboard → Profile</strong></li>
+                  <li>Scroll to <strong>"Plan & Features"</strong> section</li>
+                  <li>Click the purple <strong>"Make Me Admin"</strong> button</li>
+                  <li>Page will refresh with admin access</li>
+                </ol>
             </div>
-            <div>
-              <strong>Users in localStorage:</strong> {
-                (() => {
-                  try {
-                    const stored = localStorage.getItem('legacyScheduler_users');
-                    return stored ? JSON.parse(stored).length : 0;
-                  } catch {
-                    return 0;
-                  }
-                })()
-              }
-            </div>
-            <div>
-              <strong>Editing User ID:</strong> {editingUser?.id || 'None'}
-            </div>
-            <div>
-              <strong>Form Data:</strong> {editForm.name ? `${editForm.name} (${editForm.email})` : 'Empty'}
-            </div>
-          </div>
+            </>
+          ) : (
+            <>
+              <p className="mb-2">
+                Currently showing <strong>your own account</strong> only. To manage all platform users, you need to set up the backend admin API.
+              </p>
+              <p className="mb-3">
+                The Supabase <code className="px-1 py-0.5 bg-amber-100 dark:bg-amber-900 rounded text-xs">auth.admin</code> API requires server-side authentication with the service_role key.
+              </p>
+              <p className="font-semibold">
+                📄 See <code>USER_MANAGEMENT_SETUP.md</code> for complete setup instructions
+              </p>
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -766,6 +1106,38 @@ export function AdminUsers() {
                   {users.reduce((sum, user) => sum + user.audioMessages, 0)}
                 </div>
                 <div className="text-xs text-gray-500">Audio Messages</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-cyan-100 rounded-full flex items-center justify-center">
+                <Image className="w-4 h-4 text-cyan-600" />
+              </div>
+              <div>
+                <div className="text-lg font-semibold">
+                  {users.reduce((sum, user) => sum + user.imageFiles, 0)}
+                </div>
+                <div className="text-xs text-gray-500">Images</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center">
+                <FolderArchive className="w-4 h-4 text-amber-600" />
+              </div>
+              <div>
+                <div className="text-lg font-semibold">
+                  {users.reduce((sum, user) => sum + user.otherFiles, 0)}
+                </div>
+                <div className="text-xs text-gray-500">Other Files</div>
               </div>
             </div>
           </CardContent>
@@ -918,6 +1290,18 @@ export function AdminUsers() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Admin Media Viewer Dialog */}
+      {viewingMediaUser && currentUser && (
+        <AdminMediaViewer
+          userId={viewingMediaUser.id}
+          userName={viewingMediaUser.name}
+          userEmail={viewingMediaUser.email}
+          isOpen={!!viewingMediaUser}
+          onClose={() => setViewingMediaUser(null)}
+          isAdmin={currentUser.plan === 'LEGACY'}
+        />
+      )}
     </div>
   );
 }

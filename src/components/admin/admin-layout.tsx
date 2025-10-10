@@ -10,42 +10,48 @@ import {
   Calendar,
   DollarSign,
   ArrowLeft,
-  Shield
+  Shield,
+  Ban
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function AdminLayout() {
   const { user } = useAuth();
-  const { siteSettings } = useAdmin();
+  const { siteSettings, isAdmin } = useAdmin();
   const location = useLocation();
 
-  const navigation = [
-    { name: 'Dashboard', href: '/admin', icon: BarChart3 },
-    { name: 'Users', href: '/admin/users', icon: Users },
-    { name: 'Messages', href: '/admin/messages', icon: Calendar },
-    { name: 'Subscriptions', href: '/admin/subscriptions', icon: DollarSign },
-    { name: 'Site Customization', href: '/admin/customize', icon: Palette },
-    { name: 'Admin Profile', href: '/admin/profile', icon: Settings },
+  // Define all navigation items with admin-only flags
+  const allNavigation = [
+    { name: 'Dashboard', href: '/admin', icon: BarChart3, adminOnly: false },
+    { name: 'Users', href: '/admin/users', icon: Users, adminOnly: true },
+    { name: 'Messages', href: '/admin/messages', icon: Calendar, adminOnly: false },
+    { name: 'Subscriptions', href: '/admin/subscriptions', icon: DollarSign, adminOnly: true },
+    { name: 'Site Customization', href: '/admin/customize', icon: Palette, adminOnly: true },
+    { name: 'Security & Blocking', href: '/admin/security', icon: Ban, adminOnly: true },
+    { name: 'Admin Profile', href: '/admin/profile', icon: Settings, adminOnly: true },
   ];
 
+  // Filter navigation based on admin status
+  const navigation = allNavigation.filter(item => !item.adminOnly || isAdmin);
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      <header className="bg-white dark:bg-gray-900 shadow-sm border-b dark:border-gray-800">
         <div className="px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <Link to="/dashboard" className="text-sm text-gray-500 hover:text-gray-700 flex items-center">
+              <Link to="/dashboard" className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center">
                 <ArrowLeft className="w-4 h-4 mr-1" />
                 Back to Dashboard
               </Link>
-              <div className="text-2xl font-bold text-gray-900 flex items-center">
-                <Shield className="w-6 h-6 mr-2 text-red-600" />
+              <div className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
+                <Shield className="w-6 h-6 mr-2 text-red-600 dark:text-red-500" />
                 {siteSettings.siteName} Admin
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-gray-600 dark:text-gray-400">
                 {user?.name} • {user?.plan}
               </span>
             </div>
@@ -55,7 +61,7 @@ export function AdminLayout() {
 
       <div className="flex">
         {/* Sidebar */}
-        <nav className="w-64 bg-white shadow-sm min-h-screen">
+        <nav className="w-64 bg-white dark:bg-gray-900 shadow-sm min-h-screen border-r dark:border-gray-800">
           <div className="p-6">
             <div className="space-y-2">
               {navigation.map((item) => {
@@ -69,8 +75,8 @@ export function AdminLayout() {
                     className={cn(
                       'flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors',
                       isActive
-                        ? 'bg-gray-900 text-white'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                        ? 'bg-gray-900 dark:bg-gray-700 text-white'
+                        : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800'
                     )}
                   >
                     <Icon className="w-5 h-5 mr-3" />

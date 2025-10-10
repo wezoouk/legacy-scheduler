@@ -118,7 +118,9 @@ export function useMessages() {
       // Only refresh if we have scheduled messages that might change status
       const hasScheduledMessages = messages.some(msg => msg.status === 'SCHEDULED');
       if (hasScheduledMessages) {
-        console.log('Auto-refreshing messages to check for status updates...');
+        if (localStorage.getItem('debug_verbose') === '1') {
+          console.log('Auto-refreshing messages to check for status updates...');
+        }
         fetchMessages();
       }
     }, 10000); // 10 seconds
@@ -129,7 +131,9 @@ export function useMessages() {
   // Listen for immediate status updates from scheduled message service
   useEffect(() => {
     const handleStatusUpdate = (event: CustomEvent) => {
-      console.log('Received message status update event:', event.detail);
+      if (localStorage.getItem('debug_verbose') === '1') {
+        console.log('Received message status update event:', event.detail);
+      }
       // Refresh messages immediately when status changes
       fetchMessages();
     };
@@ -158,7 +162,9 @@ export function useMessages() {
         throw new Error('User not authenticated with Supabase - localStorage fallback disabled');
       }
 
-      console.log('Fetching messages from Supabase database');
+      if (localStorage.getItem('debug_verbose') === '1') {
+        console.log('Fetching messages from Supabase database');
+      }
       await loadFromDatabase();
     } catch (error) {
       console.error('Error fetching messages:', error);
@@ -266,7 +272,9 @@ export function useMessages() {
         })
       );
 
-      console.log(`Loaded ${messagesWithDmsStatus.length} messages from database`);
+      if (localStorage.getItem('debug_verbose') === '1') {
+        console.log(`Loaded ${messagesWithDmsStatus.length} messages from database`);
+      }
       setMessages(messagesWithDmsStatus);
     } catch (error) {
       console.error('Error loading from database:', error);
@@ -458,8 +466,116 @@ export function useMessages() {
   };
 
   const sendMessageEmails = async (message: Message) => {
-    // Skip email sending in local mode
-    console.log('Email sending skipped in local mode for message:', message.id);
+    console.log('📧 Sending emails for message:', message.id);
+    
+    try {
+      // Get recipients for this message
+      const messageRecipients = recipients.filter(r => 
+        message.recipientIds?.includes(r.id)
+      );
+      
+      if (messageRecipients.length === 0) {
+        console.warn('⚠️ No recipients found for message:', message.id);
+        return;
+      }
+      
+      console.log(`📨 Sending to ${messageRecipients.length} recipients...`);
+      
+      // Import EmailService dynamically to avoid circular dependencies
+      const { EmailService } = await import('./email-service');
+      
+      // Send email to each recipient
+      let successCount = 0;
+      let errorCount = 0;
+      
+      for (const recipient of messageRecipients) {
+        try {
+          console.log(`  → Sending to ${recipient.email}...`);
+          
+          // Prepare attachments array
+          const attachments: any[] = [];
+          
+          // Add video attachment if present
+          if (message.cipherBlobUrl) {
+            attachments.push({
+              filename: 'video-message.mp4',
+              content: message.cipherBlobUrl,
+              contentType: 'video/mp4'
+            });
+          }
+          
+          // Add audio attachment if present
+          if (message.audioRecording) {
+            attachments.push({
+              filename: 'audio-message.webm',
+              content: message.audioRecording,
+              contentType: 'audio/webm'
+            });
+          }
+          
+          // Add file attachments if present
+          if (message.attachments) {
+            let attachmentsArray = message.attachments;
+            if (typeof attachmentsArray === 'string') {
+              try {
+                attachmentsArray = JSON.parse(attachmentsArray);
+              } catch (e) {
+                console.warn('Failed to parse attachments JSON:', e);
+                attachmentsArray = [];
+              }
+            }
+            if (Array.isArray(attachmentsArray) && attachmentsArray.length > 0) {
+              attachmentsArray.forEach((file: any) => {
+                attachments.push({
+                  filename: file.name,
+                  content: file.url || `File attachment: ${file.name}`,
+                  contentType: file.type || 'application/octet-stream'
+                });
+              });
+            }
+          }
+          
+          const result = await EmailService.sendEmail({
+            messageId: message.id,
+            recipientEmail: recipient.email,
+            recipientName: recipient.name,
+            subject: message.title,
+            content: message.content,
+            messageType: (message.types?.[0] as 'EMAIL' | 'VIDEO' | 'VOICE' | 'FILE') || 'EMAIL',
+            attachments: attachments.length > 0 ? attachments : undefined,
+            senderName: authUser.name
+          });
+          
+          if (result && result.success) {
+            console.log(`  ✅ Sent to ${recipient.email}`);
+            successCount++;
+          } else {
+            console.error(`  ❌ Failed to send to ${recipient.email}:`, result?.error || 'Unknown error');
+            errorCount++;
+          }
+        } catch (emailError) {
+          console.error(`  ❌ Error sending to ${recipient.email}:`, emailError);
+          errorCount++;
+        }
+      }
+      
+      console.log(`📧 Email sending complete: ${successCount} sent, ${errorCount} failed`);
+      
+      if (errorCount > 0 && successCount === 0) {
+        // All failed - show error
+        alert(`❌ Failed to send emails to all ${errorCount} recipients.\n\nCheck console for details.`);
+      } else if (errorCount > 0) {
+        // Some failed
+        alert(`⚠️ Email sending partially completed:\n\n✅ ${successCount} emails sent successfully\n❌ ${errorCount} emails failed\n\nCheck console for details.`);
+      } else {
+        // All succeeded
+        console.log('✅ All emails sent successfully!');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error in sendMessageEmails:', error);
+      alert(`❌ Failed to send emails: ${error instanceof Error ? error.message : 'Unknown error'}\n\nCheck console for details.`);
+    }
   };
 
   const deleteMessage = async (id: string) => {

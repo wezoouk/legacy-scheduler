@@ -9,12 +9,14 @@ import { AudioPreviewDialog } from './audio-preview-dialog';
 import { format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
 import { MediaService } from '@/lib/media-service';
 import { Link } from 'react-router-dom';
+import { useAuth } from '@/lib/auth-context';
 
 interface AudioGalleryProps {
   className?: string;
 }
 
 export function AudioGallery({ className }: AudioGalleryProps) {
+  const { user } = useAuth();
   const { messages, deleteMessage, createMessage } = useMessages();
   const { recipients } = useRecipients();
   const [audioMessages, setAudioMessages] = useState<any[]>([]);
@@ -57,18 +59,29 @@ export function AudioGallery({ className }: AudioGalleryProps) {
     }
   }, [messages]);
 
-  // Load latest 4 audios from storage
+  // Load latest 4 audios from storage (USER-SPECIFIC ONLY)
   useEffect(() => {
     const loadLatest = async () => {
+      if (!user) return;
+      
       try {
+        // Only load from user-specific folders
         const lists = await Promise.all([
-          MediaService.listFiles('uploads').catch(() => []),
-          MediaService.listFiles('audio').catch(() => []),
-          MediaService.listFiles('voice').catch(() => []),
-          MediaService.listFiles('recordings').catch(() => []),
+          MediaService.listFiles(`uploads/${user.id}`).catch(() => []),
+          MediaService.listFiles(`audio/${user.id}`).catch(() => []),
+          MediaService.listFiles(`voice/${user.id}`).catch(() => []),
+          MediaService.listFiles(`recordings/${user.id}`).catch(() => []),
         ]);
         const all = (lists.flat() as any[]);
-        const auds = all.filter(f => /\.(mp3|wav|ogg|m4a|aac|webm)$/i.test(f.name));
+        
+        // Filter to only show files in user-specific folders
+        const auds = all.filter(f => {
+          if (!/\.(mp3|wav|ogg|m4a|aac|webm)$/i.test(f.name)) return false;
+          // Verify file path includes user ID
+          const pathParts = f.path.split('/');
+          return pathParts.length >= 3 && pathParts[1] === user.id;
+        });
+        
         auds.sort((a: any, b: any) => {
           const ad = (a.updated_at || a.created_at || '');
           const bd = (b.updated_at || b.created_at || '');
@@ -104,19 +117,29 @@ export function AudioGallery({ className }: AudioGalleryProps) {
     };
     window.addEventListener('mediaUploaded', onUploaded as any);
     return () => window.removeEventListener('mediaUploaded', onUploaded as any);
-  }, []);
+  }, [user]);
 
-  // Load latest image/other files for Files area
+  // Load latest image/other files for Files area (USER-SPECIFIC ONLY)
   useEffect(() => {
     const loadFiles = async () => {
+      if (!user) return;
+      
       try {
-        const list = await MediaService.listFiles('uploads').catch(() => []);
+        // Only load from user-specific folder
+        const list = await MediaService.listFiles(`uploads/${user.id}`).catch(() => []);
+        
+        // Filter to only show files in user-specific folders (not audio/video)
         const filtered = (list as any[]).filter((f: any) => {
+          // Verify file path includes user ID
+          const pathParts = f.path.split('/');
+          if (pathParts.length < 3 || pathParts[1] !== user.id) return false;
+          
           const n = f.name.toLowerCase();
           const isAudio = /\.(mp3|wav|ogg|m4a|aac|webm)$/.test(n);
           const isVideo = /\.(mp4|webm|mov|m4v|avi|mkv)$/.test(n);
           return !isAudio && !isVideo;
         });
+        
         filtered.sort((a: any, b: any) => {
           const ad = (a.updated_at || a.created_at || '');
           const bd = (b.updated_at || b.created_at || '');
@@ -132,17 +155,21 @@ export function AudioGallery({ className }: AudioGalleryProps) {
       }
     };
     loadFiles();
-  }, []);
+  }, [user]);
 
   const onUploadFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
+    if (!e.target.files || e.target.files.length === 0 || !user) return;
     try {
       for (const file of Array.from(e.target.files)) {
         await MediaService.uploadAttachment(file);
       }
-      // refresh both lists
-      const list = await MediaService.listFiles('uploads').catch(() => []);
+      // refresh list - only show user's files
+      const list = await MediaService.listFiles(`uploads/${user.id}`).catch(() => []);
       const filtered = (list as any[]).filter((f: any) => {
+        // Verify file path includes user ID
+        const pathParts = f.path.split('/');
+        if (pathParts.length < 3 || pathParts[1] !== user.id) return false;
+        
         const n = f.name.toLowerCase();
         const isAudio = /\.(mp3|wav|ogg|m4a|aac|webm)$/.test(n);
         const isVideo = /\.(mp4|webm|mov|m4v|avi|mkv)$/.test(n);

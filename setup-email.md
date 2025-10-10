@@ -1,37 +1,85 @@
-# Quick Setup Guide
+# Quick Email Setup Guide
 
-## 🚀 **Fix All Issues in 3 Steps:**
+## ⚡ 3-Step Setup (10 minutes)
 
-### **Step 1: Fix Database (REQUIRED)**
-1. Go to: `https://app.supabase.com/project/cvhanylywsdeblhebicj/sql`
-2. Click "New Query"
-3. Copy ALL content from `fix-all-issues.sql` and paste it
-4. Click "Run"
+### Step 1: Deploy Edge Function
+```bash
+cd "C:\Users\davwe\Projects\with security"
+npx supabase functions deploy send-email
+```
 
-### **Step 2: Set up Email (For sending emails)**
-Choose ONE option:
+### Step 2: Get Resend API Key
+1. Go to: **https://resend.com/signup**
+2. Sign up (free - 100 emails/day)
+3. Click **"API Keys"** → **"Create API Key"**
+4. Copy the key (starts with `re_`)
 
-**Option A: Real Email (Recommended)**
-1. Go to https://resend.com and create free account
-2. Get your API key
-3. Add to Supabase: Go to Settings > Environment Variables
-4. Add: `RESEND_API_KEY` = your-api-key
+### Step 3: Add API Key to Supabase
+```bash
+npx supabase secrets set RESEND_API_KEY=re_paste_your_key_here
+```
 
-**Option B: Development Mode (Testing)**
-1. Run: `npm install express cors` 
-2. Run: `node dev-email-server.js` (in separate terminal)
-3. Emails will be logged to console instead of sent
+**OR** via Dashboard:
+1. Go to: https://supabase.com/dashboard
+2. Click your project
+3. Settings → Edge Functions
+4. Add secret: `RESEND_API_KEY`
 
-### **Step 3: Test**
-1. Refresh your app at http://localhost:5174
-2. Create a new message - should show "Server" badge
-3. Schedule a message - should send via email
+---
 
-## 🎯 **What This Fixes:**
-- ✅ Messages save to server (not localStorage)  
-- ✅ Login works without spinning
-- ✅ Scheduled messages send emails
-- ✅ No more database errors
+## ✅ Test It!
+
+1. Create a message in your app
+2. Add recipient with **YOUR email**
+3. Click "Send Now"
+4. Check your inbox!
+
+You'll see console logs:
+```
+📧 Sending emails for message: xyz
+  → Sending to your@email.com...
+  ✅ Sent to your@email.com
+✅ All emails sent successfully!
+```
+
+---
+
+## 🎯 That's It!
+
+Emails will now work for:
+- ✅ Manual sends (click "Send Now")
+- ✅ Scheduled sends (automatic)
+- ✅ All message types (text, video, audio, files)
+
+---
+
+## 🆘 Need Help?
+
+### If emails don't send:
+1. Check browser console for errors
+2. Check Supabase logs: `npx supabase functions logs send-email`
+3. Verify API key is set: Check Supabase Dashboard → Settings → Edge Functions
+4. Check spam folder!
+
+### Common Issues:
+- **"Edge function not found"** → Deploy it with Step 1
+- **"RESEND_API_KEY not configured"** → Add it with Step 3
+- **"Recipient not authorized"** → Add recipient to Recipients page first
+
+---
+
+## 📧 Current Sender
+
+Emails send from: **`Rembr <noreply@sugarbox.uk>`**
+
+To change (optional):
+1. Open: `supabase/functions/send-email/index.ts`
+2. Line 161: Change `const from = 'Your Name <your@email.com>'`
+3. Redeploy: `npx supabase functions deploy send-email`
+
+---
+
+See **EMAIL_SENDING_FIXED.md** for full details!
 
 
 

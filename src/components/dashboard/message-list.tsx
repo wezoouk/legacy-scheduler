@@ -41,20 +41,22 @@ export function MessageList({ onCreateMessage }: MessageListProps = {}) {
   }, [previewingVideo]);
   const [previewingAudio, setPreviewingAudio] = useState<any>(null);
 
-  // Debug: Log messages with media
-  console.log('All messages:', messages.map(m => ({
-    title: m.title,
-    types: m.types,
-    hasVideoType: m.types?.includes('VIDEO') || m.type === 'VIDEO',
-    hasAudioType: m.types?.includes('VOICE') || m.type === 'VOICE',
-    hasVideo: !!m.cipherBlobUrl,
-    hasAudio: !!(m.audioRecording || m.cipherBlobUrl),
-    audioUrl: m.audioRecording || m.cipherBlobUrl,
-    videoUrl: m.cipherBlobUrl,
-    status: m.status,
-    content: m.content?.substring(0, 50) + '...',
-    fullMessage: m // Log the full message object
-  })));
+  // Optional debug: Log messages with media
+  if (localStorage.getItem('debug_verbose') === '1') {
+    console.log('All messages:', messages.map(m => ({
+      title: m.title,
+      types: m.types,
+      hasVideoType: m.types?.includes('VIDEO') || m.type === 'VIDEO',
+      hasAudioType: m.types?.includes('VOICE') || m.type === 'VOICE',
+      hasVideo: !!m.cipherBlobUrl,
+      hasAudio: !!(m.audioRecording || m.cipherBlobUrl),
+      audioUrl: m.audioRecording || m.cipherBlobUrl,
+      videoUrl: m.cipherBlobUrl,
+      status: m.status,
+      content: m.content?.substring(0, 50) + '...',
+      fullMessage: m
+    })));
+  }
 
   const getMessageIcons = (types: string[] | string) => {
     // Handle backward compatibility with single type

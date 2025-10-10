@@ -16,6 +16,14 @@ interface SiteSettings {
   siteName: string;
   heroTitle: string;
   heroSubtitle: string;
+  heroTitleSize?: string; // e.g., '3rem', '48px'
+  heroSubtitleSize?: string; // e.g., '1.5rem', '24px'
+  heroTitleWeight?: string; // e.g., '400', '700', 'bold'
+  heroSubtitleWeight?: string;
+  heroTitleLetterSpacing?: string; // e.g., '0.05em', '2px'
+  heroSubtitleLetterSpacing?: string;
+  heroTitleTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+  heroSubtitleTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
   email_from_display?: string; // e.g., "Rembr - David West"
   email_reply_to?: string; // optional override (server may enforce)
 }
@@ -32,9 +40,17 @@ const defaultSiteSettings: SiteSettings = {
   heroFont: 'Inter',
   primaryColor: '#0f172a',
   logoUrl: '',
-  siteName: 'Legacy Scheduler',
+  siteName: 'Rembr',
   heroTitle: 'Send messages. Forever.',
   heroSubtitle: 'Elegant scheduled messaging for legacy and care.',
+  heroTitleSize: '3.75rem',
+  heroSubtitleSize: '1.5rem',
+  heroTitleWeight: '800',
+  heroSubtitleWeight: '400',
+  heroTitleLetterSpacing: 'normal',
+  heroSubtitleLetterSpacing: 'normal',
+  heroTitleTransform: 'none',
+  heroSubtitleTransform: 'none',
   email_from_display: '',
   email_reply_to: '',
 };
@@ -43,7 +59,10 @@ export function useAdmin() {
   const { user } = useAuth();
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(defaultSiteSettings);
 
-  const isAdmin = user?.plan === 'LEGACY';
+  // Admin check: Must have BOTH LEGACY plan AND be in the admin email list
+  const isAdmin = user?.plan === 'LEGACY' && user?.email ? 
+    ['davwez@gmail.com', 'davwez88@gmail.com'].includes(user.email.toLowerCase()) : 
+    false;
 
   useEffect(() => {
     // Load site settings from localStorage

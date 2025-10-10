@@ -10,12 +10,14 @@ import { VideoPreviewDialog } from './video-preview-dialog';
 import { format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
 import { MediaService } from '@/lib/media-service';
 import { Link } from 'react-router-dom';
+import { useAuth } from '@/lib/auth-context';
 
 interface VideoGalleryProps {
   className?: string;
 }
 
 export function VideoGallery({ className }: VideoGalleryProps) {
+  const { user } = useAuth();
   const { messages, deleteMessage, createMessage } = useMessages();
   const { recipients } = useRecipients();
   const [videoMessages, setVideoMessages] = useState<any[]>([]);
@@ -94,16 +96,27 @@ export function VideoGallery({ className }: VideoGalleryProps) {
     setVideoMessages(videos);
   }, [messages]);
 
-  // Load latest 4 videos from storage
+  // Load latest 4 videos from storage (USER-SPECIFIC ONLY)
   useEffect(() => {
     const loadLatest = async () => {
+      if (!user) return;
+      
       try {
+        // Only load from user-specific folders
         const lists = await Promise.all([
-          MediaService.listFiles('uploads').catch(() => []),
-          MediaService.listFiles('recordings').catch(() => []),
+          MediaService.listFiles(`uploads/${user.id}`).catch(() => []),
+          MediaService.listFiles(`recordings/${user.id}`).catch(() => []),
         ]);
         const all = (lists.flat() as any[]);
-        const vids = all.filter(f => /\.(mp4|webm|mov|m4v|avi|mkv)$/i.test(f.name));
+        
+        // Filter to only show files in user-specific folders
+        const vids = all.filter(f => {
+          if (!/\.(mp4|webm|mov|m4v|avi|mkv)$/i.test(f.name)) return false;
+          // Verify file path includes user ID
+          const pathParts = f.path.split('/');
+          return pathParts.length >= 3 && pathParts[1] === user.id;
+        });
+        
         vids.sort((a: any, b: any) => {
           const ad = (a.updated_at || a.created_at || '');
           const bd = (b.updated_at || b.created_at || '');
@@ -140,7 +153,7 @@ export function VideoGallery({ className }: VideoGalleryProps) {
     };
     window.addEventListener('mediaUploaded', onUploaded as any);
     return () => window.removeEventListener('mediaUploaded', onUploaded as any);
-  }, []);
+  }, [user]);
 
   const getDeliveryStatus = (message: any) => {
     if (message.status === 'SENT') {

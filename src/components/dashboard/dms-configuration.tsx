@@ -239,6 +239,9 @@ export function DmsConfiguration() {
   const [editingMessage, setEditingMessage] = useState<any>(null);
   const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
   const [showFinalConfirm, setShowFinalConfirm] = useState(false);
+  const [isReleasing, setIsReleasing] = useState(false);
+  const [releaseBanner, setReleaseBanner] = useState<{ at: Date; count: number } | null>(null);
+  const [releaseError, setReleaseError] = useState<string | null>(null);
   
   const { user } = useAuth();
   const { messages, updateMessage, refreshMessages } = useMessages();
@@ -255,8 +258,8 @@ export function DmsConfiguration() {
     defaultValues: {
       frequencyDays: 7,
       frequencyUnit: 'days',
-      graceDays: 3,
-      graceUnit: 'days',
+      graceDays: 0,
+      graceUnit: 'minutes',
       channels: {
         email: true,
         sms: false,
@@ -277,13 +280,14 @@ export function DmsConfiguration() {
   const getGraceDeadline = () => {
     if (!currentCycle || !dmsConfig) return new Date();
     const graceUnit = (dmsConfig as any).graceUnit || 'days';
-    console.log('🔍 getGraceDeadline:', {
-      graceDays: dmsConfig.graceDays,
-      graceUnit: graceUnit,
-      nextCheckinAt: currentCycle.nextCheckinAt,
-      deadline: addByUnit(currentCycle.nextCheckinAt, dmsConfig.graceDays, graceUnit)
-    });
-    return addByUnit(currentCycle.nextCheckinAt, dmsConfig.graceDays, graceUnit);
+    const base = currentCycle.nextCheckinAt instanceof Date
+      ? currentCycle.nextCheckinAt
+      : new Date(currentCycle.nextCheckinAt as unknown as string);
+    const graceValue = Number.isFinite(dmsConfig.graceDays as unknown as number)
+      ? (dmsConfig.graceDays as unknown as number)
+      : 0;
+    const deadline = addByUnit(base, graceValue, graceUnit as any);
+    return isNaN(deadline.getTime()) ? base : deadline;
   };
 
   useEffect(() => {
@@ -570,7 +574,8 @@ export function DmsConfiguration() {
   };
 
   const testDmsRelease = async () => {
-    setShowFinalConfirm(false);
+    setReleaseError(null);
+    setIsReleasing(true);
     
     try {
       console.log('⚠️ EMERGENCY DMS RELEASE TRIGGERED ⚠️');
@@ -605,9 +610,16 @@ export function DmsConfiguration() {
           description: `Processed ${result.processed || 0} messages, ${result.errors || 0} errors. Messages are being sent!`,
         });
         await fetchDmsConfig();
+        await refreshMessages();
+        setReleaseBanner({ at: new Date(), count: dmsMessages.length });
+        setShowFinalConfirm(false);
+        setShowEmergencyConfirm(false);
+        // auto-hide banner after 30s
+        setTimeout(() => setReleaseBanner(null), 30000);
         console.log('✅ Emergency release complete! Messages sent.');
       } else {
         console.error('Edge Function error:', result);
+        setReleaseError(result?.error || `HTTP ${response.status}`);
         toast({
           title: "Release Failed",
           description: result.error || `HTTP ${response.status}: ${JSON.stringify(result)}`,
@@ -616,12 +628,14 @@ export function DmsConfiguration() {
       }
     } catch (error) {
       console.error('Emergency release error:', error);
+      setReleaseError(error instanceof Error ? error.message : 'Unknown error');
       toast({
         title: "Release Failed",
         description: error instanceof Error ? error.message : "Failed to trigger emergency release",
         variant: "destructive",
       });
     }
+    setIsReleasing(false);
   };
 
   const performCheckin = async () => {
@@ -1331,6 +1345,11 @@ export function DmsConfiguration() {
                 <Bell className="h-5 w-5 mr-2" />
                 DMS Messages - Countdown to Release
               </CardTitle>
+              {releaseBanner && (
+                <div className="ml-4 px-3 py-1 rounded bg-green-600 text-white text-xs font-semibold">
+                  Emergency release executed at {releaseBanner.at.toLocaleTimeString()} · {releaseBanner.count} message{releaseBanner.count !== 1 ? 's' : ''}
+                </div>
+              )}
               <Button 
                 onClick={() => setShowCheckIn(true)}
                 className="bg-green-600 hover:bg-green-700"
@@ -1557,22 +1576,31 @@ export function DmsConfiguration() {
               </p>
             </div>
             
-            <div className="flex space-x-3">
-              <Button 
-                onClick={() => setShowFinalConfirm(false)}
-                variant="outline"
-                className="flex-1 border-2 border-green-600 bg-green-50 hover:bg-green-100 text-green-900 font-bold"
-              >
-                <X className="h-4 w-4 mr-2" />
-                Cancel (Safe)
-              </Button>
-              <Button 
-                onClick={testDmsRelease}
-                className="flex-1 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold border-2 border-black shadow-lg"
-              >
-                <AlertTriangle className="h-4 w-4 mr-2" />
-                RELEASE NOW
-              </Button>
+            <div className="flex flex-col space-y-3">
+              {releaseError && (
+                <div className="rounded border border-red-500 bg-red-50 text-red-800 px-3 py-2 text-sm">
+                  {releaseError}
+                </div>
+              )}
+              <div className="flex space-x-3">
+                <Button 
+                  onClick={() => setShowFinalConfirm(false)}
+                  variant="outline"
+                  className="flex-1 border-2 border-green-600 bg-green-50 hover:bg-green-100 text-green-900 font-bold"
+                  disabled={isReleasing}
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  Cancel (Safe)
+                </Button>
+                <Button 
+                  onClick={testDmsRelease}
+                  className="flex-1 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold border-2 border-black shadow-lg"
+                  disabled={isReleasing}
+                >
+                  <AlertTriangle className="h-4 w-4 mr-2" />
+                  {isReleasing ? 'Releasing…' : 'RELEASE NOW'}
+                </Button>
+              </div>
             </div>
           </div>
         </div>

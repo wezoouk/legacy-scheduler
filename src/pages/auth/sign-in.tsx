@@ -1,15 +1,16 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/lib/auth-context";
-import { Mail, Lock, Loader2, AlertTriangle } from "lucide-react";
+import { useAdmin } from "@/lib/use-admin";
+import { Mail, Lock, Loader2, AlertTriangle, CheckCircle } from "lucide-react";
 
 const signInSchema = z.object({
   email: z.string().email("Invalid email address").min(1, "Email is required"),
@@ -20,7 +21,10 @@ type SignInForm = z.infer<typeof signInSchema>;
 
 export function SignInPage() {
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const { login, isLoading } = useAuth();
+  const { siteSettings } = useAdmin();
+  const location = useLocation();
   
   const {
     register,
@@ -30,12 +34,25 @@ export function SignInPage() {
     resolver: zodResolver(signInSchema),
   });
 
+  // Check for success message from sign-up redirect
+  useEffect(() => {
+    if (location.state?.message) {
+      setSuccessMessage(location.state.message);
+      // Clear the message from location state
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
+
   const onSubmit = async (data: SignInForm) => {
     try {
       setError("");
       await login(data.email, data.password);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Invalid email or password";
+      let errorMessage = err instanceof Error ? err.message : "Invalid email or password";
+      // Check if it's an email confirmation error
+      if (errorMessage.includes('Email not confirmed') || errorMessage.includes('email_not_confirmed')) {
+        errorMessage = "Please verify your email address before signing in. Check your inbox for the confirmation link.";
+      }
       setError(errorMessage);
     }
   };
@@ -47,11 +64,20 @@ export function SignInPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
           <CardDescription>
-            Sign in to your Legacy Scheduler account
+            Sign in to your {siteSettings.siteName} account
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            {successMessage && (
+              <Alert className="border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800">
+                <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                <AlertDescription className="text-green-800 dark:text-green-200">
+                  {successMessage}
+                </AlertDescription>
+              </Alert>
+            )}
+
             {error && (
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />

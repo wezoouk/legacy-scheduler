@@ -294,3 +294,5 @@ https://supabase.com/dashboard/project/cvhanylywsdeblhebicj/functions/process-sc
 
 Choose Option 1 (GitHub Actions) for best results!
 
+
+

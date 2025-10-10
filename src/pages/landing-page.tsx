@@ -47,12 +47,12 @@ function NewsletterForm() {
       <input
         value={email}
         onChange={(e)=>setEmail(e.target.value)}
-        className="w-full max-w-xs px-4 py-2 rounded-full bg-white/[0.06] border border-white/10 text-white placeholder-white/40 focus:outline-none"
+        className="w-full max-w-xs px-4 py-2 rounded-full bg-gray-100 dark:bg-white/[0.06] border border-gray-300 dark:border-white/10 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-500"
         placeholder="Enter your email"
       />
-      <button onClick={subscribe} disabled={status==='loading'} className="px-4 py-2 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 shadow-[0_0_20px_rgba(139,92,246,0.35)]">{status==='loading' ? 'Subscribing…' : 'Subscribe'}</button>
+      <button onClick={subscribe} disabled={status==='loading'} className="px-4 py-2 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-[0_0_20px_rgba(139,92,246,0.35)] disabled:opacity-50">{status==='loading' ? 'Subscribing…' : 'Subscribe'}</button>
       {message && (
-        <span className={`text-xs ${status==='success' ? 'text-green-400' : 'text-red-400'}`}>{message}</span>
+        <span className={`text-xs ${status==='success' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{message}</span>
       )}
     </div>
   );
@@ -366,7 +366,11 @@ export function LandingPage() {
     <div className="min-h-screen bg-background text-foreground">
       {/* Hero Section */}
       <section 
-        className="relative py-24 px-4 text-center overflow-hidden bg-gray-900"
+        className={`relative px-4 text-center overflow-hidden bg-white dark:bg-gray-900 flex items-center justify-center ${
+          siteSettings.heroVideoUrl 
+            ? 'min-h-[70vh] md:min-h-[85vh] lg:min-h-screen h-[70vh] md:h-[85vh] lg:h-screen' 
+            : 'min-h-[400px] md:min-h-[500px] lg:min-h-[600px]'
+        }`}
         style={{
           fontFamily: siteSettings.heroFont,
         }}
@@ -388,41 +392,55 @@ export function LandingPage() {
           </>
         )}
         
-        <div className={`relative z-10 ${siteSettings.heroLayout === 'full' ? 'max-w-7xl' : 'max-w-[1200px]'} mx-auto`}>
+        <div className={`relative z-10 ${siteSettings.heroLayout === 'full' ? 'max-w-7xl' : 'max-w-[1200px]'} mx-auto py-12 md:py-24 px-4`}>
           <h1 
-            className="text-5xl md:text-6xl font-extrabold mb-6 leading-tight text-white"
+            className="mb-2 md:mb-3 leading-tight text-gray-900 dark:text-white"
+            style={{
+              fontFamily: siteSettings.heroFont || 'Inter',
+              fontSize: `clamp(2rem, 8vw, ${siteSettings.heroTitleSize || '3.75rem'})`,
+              fontWeight: siteSettings.heroTitleWeight || '800',
+              letterSpacing: siteSettings.heroTitleLetterSpacing || 'normal',
+              textTransform: (siteSettings.heroTitleTransform as any) || 'none',
+            }}
           >
             {siteSettings.heroTitle}
           </h1>
           <p 
-            className="text-xl md:text-2xl mb-8 max-w-2xl mx-auto leading-relaxed text-slate-300"
+            className="mb-6 md:mb-8 max-w-2xl mx-auto leading-relaxed text-gray-700 dark:text-slate-300"
+            style={{
+              fontFamily: siteSettings.heroFont || 'Inter',
+              fontSize: `clamp(1rem, 4vw, ${siteSettings.heroSubtitleSize || '1.5rem'})`,
+              fontWeight: siteSettings.heroSubtitleWeight || '400',
+              letterSpacing: siteSettings.heroSubtitleLetterSpacing || 'normal',
+              textTransform: (siteSettings.heroSubtitleTransform as any) || 'none',
+            }}
           >
             {siteSettings.heroSubtitle}
           </p>
           
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <div className="flex flex-col sm:flex-row gap-3 md:gap-4 justify-center">
             <Link to="/auth/sign-up">
               <Button 
                 size="lg" 
                 variant="default"
-                className="text-lg px-8 py-6 rounded-full font-semibold shadow-lg hover:shadow-xl transition-all duration-300 bg-primary text-primary-foreground hover:bg-primary/90"
+                className="text-base md:text-lg px-6 md:px-8 py-4 md:py-6 rounded-full font-semibold shadow-lg hover:shadow-xl transition-all duration-300 bg-primary text-primary-foreground hover:bg-primary/90 w-full sm:w-auto"
               >
                 Get Started with Rembr
-                <ArrowRight className="ml-2 h-5 w-5" />
+                <ArrowRight className="ml-2 h-4 w-4 md:h-5 md:w-5" />
               </Button>
             </Link>
             <Link to="/auth/sign-in">
               <Button 
                 variant="secondary" 
                 size="lg" 
-                className="text-lg px-8 py-6 rounded-full font-semibold"
+                className="text-base md:text-lg px-6 md:px-8 py-4 md:py-6 rounded-full font-semibold w-full sm:w-auto"
               >
                 Sign In
               </Button>
             </Link>
           </div>
 
-          <div className="mt-12 flex justify-center items-center space-x-8 text-sm opacity-80">
+          <div className="mt-8 md:mt-12 flex flex-wrap justify-center items-center gap-4 md:gap-8 text-xs md:text-sm opacity-80 text-gray-700 dark:text-white">
             <div className="flex items-center space-x-2">
               <CheckCircle className="h-4 w-4" />
               <span>Secure & Private</span>
@@ -440,13 +458,13 @@ export function LandingPage() {
       </section>
 
       {/* Features Section */}
-      <section className="py-20 px-4 bg-muted">
+      <section className="py-20 px-4 bg-gray-50 dark:bg-muted">
         <div className={`${siteSettings.heroLayout === 'full' ? 'max-w-7xl' : 'max-w-[1200px]'} mx-auto`}>
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4">
+            <h2 className="text-4xl font-bold mb-4 text-gray-900 dark:text-white">
               Everything You Need for Legacy Messaging
             </h2>
-            <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-xl text-gray-600 dark:text-muted-foreground max-w-2xl mx-auto">
               Powerful features designed to help you create meaningful connections across time
             </p>
           </div>
@@ -457,19 +475,19 @@ export function LandingPage() {
               return (
                 <Card
                   key={index}
-                  className="relative overflow-hidden bg-white/[0.03] backdrop-blur rounded-2xl border border-white/10 hover:border-white/20 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_8px_40px_rgba(99,102,241,0.25)]"
+                  className="relative overflow-hidden bg-white dark:bg-white/[0.03] backdrop-blur rounded-2xl border border-gray-200 dark:border-white/10 hover:border-gray-300 dark:hover:border-white/20 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg dark:hover:shadow-[0_8px_40px_rgba(99,102,241,0.25)]"
                 >
-                  <div className="absolute inset-0 pointer-events-none" style={{
+                  <div className="absolute inset-0 pointer-events-none dark:block hidden" style={{
                     background: 'radial-gradient(600px 120px at 20% -10%, rgba(124,58,237,0.12), transparent 60%)'
                   }} />
                   <CardHeader>
-                    <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 bg-gradient-to-br from-indigo-500/20 to-violet-500/20 ring-1 ring-white/10">
-                      <Icon className="h-6 w-6 text-indigo-300" />
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 bg-gradient-to-br from-indigo-500/20 to-violet-500/20 ring-1 ring-indigo-200 dark:ring-white/10">
+                      <Icon className="h-6 w-6 text-indigo-600 dark:text-indigo-300" />
                     </div>
-                    <CardTitle className="text-xl text-white/90">{feature.title}</CardTitle>
+                    <CardTitle className="text-xl text-gray-900 dark:text-white/90">{feature.title}</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <CardDescription className="text-base leading-relaxed text-white/70">
+                    <CardDescription className="text-base leading-relaxed text-gray-600 dark:text-white/70">
                       {feature.description}
                     </CardDescription>
                   </CardContent>
@@ -481,11 +499,11 @@ export function LandingPage() {
       </section>
 
       {/* How It Works */}
-      <section className="py-20 px-4 bg-muted">
+      <section className="py-20 px-4 bg-white dark:bg-muted">
         <div className={`${siteSettings.heroLayout === 'full' ? 'max-w-7xl' : 'max-w-[1200px]'} mx-auto`}>
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4 text-white">How Rembr Works</h2>
-            <p className="text-lg text-white/70 max-w-2xl mx-auto">Three easy steps – designed to feel effortless and look beautiful.</p>
+            <h2 className="text-4xl font-bold mb-4 text-gray-900 dark:text-white">How Rembr Works</h2>
+            <p className="text-lg text-gray-600 dark:text-white/70 max-w-2xl mx-auto">Three easy steps – designed to feel effortless and look beautiful.</p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-8">
@@ -508,19 +526,19 @@ export function LandingPage() {
             ].map((s, i) => (
               <div
                 key={i}
-                className="relative overflow-hidden bg-white/[0.03] backdrop-blur rounded-2xl border border-white/10 p-6 text-left hover:-translate-y-1 transition-all duration-300 hover:shadow-[0_8px_40px_rgba(139,92,246,0.25)]"
+                className="relative overflow-hidden bg-gray-50 dark:bg-white/[0.03] backdrop-blur rounded-2xl border border-gray-200 dark:border-white/10 p-6 text-left hover:-translate-y-1 transition-all duration-300 hover:shadow-lg dark:hover:shadow-[0_8px_40px_rgba(139,92,246,0.25)]"
               >
-                <div className="absolute inset-0 pointer-events-none" style={{
+                <div className="absolute inset-0 pointer-events-none dark:block hidden" style={{
                   background: 'radial-gradient(500px 100px at 20% -10%, rgba(124,58,237,0.12), transparent 60%)'
                 }} />
 
                 <div className="flex items-center gap-4">
-                  <div className="shrink-0 w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 ring-2 ring-white/20 flex items-center justify-center text-white font-bold">
+                  <div className="shrink-0 w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 ring-2 ring-indigo-200 dark:ring-white/20 flex items-center justify-center text-white font-bold">
                     {s.n}
                   </div>
-                  <h3 className="text-xl font-semibold text-white/90">{s.title}</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white/90">{s.title}</h3>
                 </div>
-                <p className="mt-3 text-white/70 leading-relaxed">{s.body}</p>
+                <p className="mt-3 text-gray-600 dark:text-white/70 leading-relaxed">{s.body}</p>
               </div>
             ))}
           </div>
@@ -528,22 +546,24 @@ export function LandingPage() {
       </section>
 
       {/* Pricing Section */}
-      <section className="py-20 px-4 relative overflow-hidden">
-        <Starfield density={340} speed={0.28} opacity={0.6} />
-        <IconDrifters icons={[Mail, Video, Mic, File, Cloud]} count={16} />
-        <TextDrifters phrases={["I LOVE YOU", "Happy Birthday", "My Love", "Happy Anniversary"]} count={4} />
+      <section className="py-20 px-4 relative overflow-hidden bg-gray-50 dark:bg-transparent">
+        <div className="dark:block hidden">
+          <Starfield density={340} speed={0.28} opacity={0.6} />
+          <IconDrifters icons={[Mail, Video, Mic, File, Cloud]} count={16} />
+          <TextDrifters phrases={["I LOVE YOU", "Happy Birthday", "My Love", "Happy Anniversary"]} count={4} />
+        </div>
         <div className={`${siteSettings.heroLayout === 'full' ? 'max-w-7xl' : 'max-w-[1200px]'} mx-auto relative z-10`}>
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4 text-white">Choose Your Plan</h2>
-            <p className="text-lg text-white/70">Start free, upgrade when you want more glow.</p>
+            <h2 className="text-4xl font-bold mb-4 text-gray-900 dark:text-white">Choose Your Plan</h2>
+            <p className="text-lg text-gray-600 dark:text-white/70">Start free, upgrade when you want more glow.</p>
           </div>
           
           <div className="grid md:grid-cols-3 gap-8">
             {pricingPlans.map((plan, index) => (
               <Card 
                 key={index} 
-                className={`relative overflow-visible backdrop-blur bg-white/[0.03] border border-white/10 rounded-2xl transition-all duration-300 hover:-translate-y-1 ${
-                  plan.popular ? 'ring-2 ring-violet-400/60 shadow-[0_8px_40px_rgba(139,92,246,0.25)] scale-[1.02]' : 'hover:shadow-[0_8px_30px_rgba(99,102,241,0.15)]'
+                className={`relative overflow-visible backdrop-blur bg-white dark:bg-white/[0.03] border border-gray-200 dark:border-white/10 rounded-2xl transition-all duration-300 hover:-translate-y-1 ${
+                  plan.popular ? 'ring-2 ring-violet-400/60 shadow-lg dark:shadow-[0_8px_40px_rgba(139,92,246,0.25)] scale-[1.02]' : 'hover:shadow-lg dark:hover:shadow-[0_8px_30px_rgba(99,102,241,0.15)]'
                 }`}
               >
                 {plan.popular && (
@@ -556,21 +576,21 @@ export function LandingPage() {
                 )}
                 
                 <CardHeader className="text-center">
-                  <CardTitle className="text-2xl text-white/90">{plan.name}</CardTitle>
-                  <div className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 to-violet-300">
+                  <CardTitle className="text-2xl text-gray-900 dark:text-white/90">{plan.name}</CardTitle>
+                  <div className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-violet-500 dark:from-indigo-300 dark:to-violet-300">
                     {plan.price}
-                    <span className="text-lg font-normal text-white/60">
+                    <span className="text-lg font-normal text-gray-600 dark:text-white/60">
                       /{plan.period}
                     </span>
                   </div>
-                  <CardDescription className="text-base text-white/70">{plan.description}</CardDescription>
+                  <CardDescription className="text-base text-gray-600 dark:text-white/70">{plan.description}</CardDescription>
                 </CardHeader>
                 
                 <CardContent>
                   <ul className="space-y-3 mb-8">
                     {plan.features.map((feature, featureIndex) => (
-                      <li key={featureIndex} className="flex items-center space-x-3 text-white/80">
-                        <CheckCircle className="h-5 w-5 text-indigo-300 flex-shrink-0" />
+                      <li key={featureIndex} className="flex items-center space-x-3 text-gray-700 dark:text-white/80">
+                        <CheckCircle className="h-5 w-5 text-indigo-600 dark:text-indigo-300 flex-shrink-0" />
                         <span>{feature}</span>
                       </li>
                     ))}
@@ -578,7 +598,7 @@ export function LandingPage() {
                   
                   <Link to="/auth/sign-up" className="block">
                     <Button 
-                      className={`w-full rounded-full ${plan.popular ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-[0_0_20px_rgba(139,92,246,0.35)]' : 'border border-white/20 bg-transparent text-white hover:bg-white/5'}`}
+                      className={`w-full rounded-full ${plan.popular ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-[0_0_20px_rgba(139,92,246,0.35)]' : 'border border-gray-300 dark:border-white/20 bg-transparent text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-white/5'}`}
                       variant={plan.popular ? 'default' : 'secondary'}
                     >
                       {plan.cta}
@@ -592,30 +612,30 @@ export function LandingPage() {
       </section>
 
       {/* Testimonials */}
-      <section className="py-20 px-4">
+      <section className="py-20 px-4 bg-white dark:bg-transparent">
         <div className={`${siteSettings.heroLayout === 'full' ? 'max-w-7xl' : 'max-w-[1200px]'} mx-auto`}>
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4 text-white">Loved by families everywhere</h2>
-            <p className="text-lg text-white/70">Real voices from people who use Rembr to keep love moving forward.</p>
+            <h2 className="text-4xl font-bold mb-4 text-gray-900 dark:text-white">Loved by families everywhere</h2>
+            <p className="text-lg text-gray-600 dark:text-white/70">Real voices from people who use Rembr to keep love moving forward.</p>
           </div>
           
           <div className="grid md:grid-cols-2 gap-8">
-            <Card className="relative overflow-hidden border border-white/10 bg-white/[0.03] backdrop-blur rounded-2xl">
-              <div className="absolute inset-0 pointer-events-none" style={{
+            <Card className="relative overflow-hidden border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03] backdrop-blur rounded-2xl">
+              <div className="absolute inset-0 pointer-events-none dark:block hidden" style={{
                 background: 'radial-gradient(400px 120px at -10% 0%, rgba(139,92,246,0.12), transparent 60%)'
               }} />
               <CardContent className="pt-6">
                 <div className="flex items-center space-x-4 mb-4">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-violet-500/30 to-indigo-500/30 ring-1 ring-white/20 flex items-center justify-center">
-                    <Heart className="h-6 w-6 text-violet-300" />
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-violet-500/30 to-indigo-500/30 ring-1 ring-violet-200 dark:ring-white/20 flex items-center justify-center">
+                    <Heart className="h-6 w-6 text-violet-600 dark:text-violet-300" />
                   </div>
                   <div>
-                    <h4 className="font-semibold text-white/90">Sarah M.</h4>
-                    <p className="text-sm text-white/60">Mother of two</p>
+                    <h4 className="font-semibold text-gray-900 dark:text-white/90">Sarah M.</h4>
+                    <p className="text-sm text-gray-600 dark:text-white/60">Mother of two</p>
                   </div>
                 </div>
-                <p className="italic mb-4 text-white/75">
-                  “Rembr gives me peace of mind knowing my children will receive my love letters on every birthday. It feels personal, thoughtful and simple.”
+                <p className="italic mb-4 text-gray-700 dark:text-white/75">
+                  "Rembr gives me peace of mind knowing my children will receive my love letters on every birthday. It feels personal, thoughtful and simple."
                 </p>
                 <div className="flex text-yellow-400">
                   {[...Array(5)].map((_, i) => (
@@ -625,22 +645,22 @@ export function LandingPage() {
               </CardContent>
             </Card>
             
-            <Card className="relative overflow-hidden border border-white/10 bg-white/[0.03] backdrop-blur rounded-2xl">
-              <div className="absolute inset-0 pointer-events-none" style={{
+            <Card className="relative overflow-hidden border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03] backdrop-blur rounded-2xl">
+              <div className="absolute inset-0 pointer-events-none dark:block hidden" style={{
                 background: 'radial-gradient(400px 120px at 110% 0%, rgba(99,102,241,0.12), transparent 60%)'
               }} />
               <CardContent className="pt-6">
                 <div className="flex items-center space-x-4 mb-4">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500/30 to-violet-500/30 ring-1 ring-white/20 flex items-center justify-center">
-                    <Globe className="h-6 w-6 text-indigo-300" />
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500/30 to-violet-500/30 ring-1 ring-indigo-200 dark:ring-white/20 flex items-center justify-center">
+                    <Globe className="h-6 w-6 text-indigo-600 dark:text-indigo-300" />
                   </div>
                   <div>
-                    <h4 className="font-semibold text-white/90">David R.</h4>
-                    <p className="text-sm text-white/60">Frequent traveler</p>
+                    <h4 className="font-semibold text-gray-900 dark:text-white/90">David R.</h4>
+                    <p className="text-sm text-gray-600 dark:text-white/60">Frequent traveler</p>
                   </div>
                 </div>
-                <p className="italic mb-4 text-white/75">
-                  “I line up messages before long trips and never worry. Guardian Angel is my quiet safety net for the people I love.”
+                <p className="italic mb-4 text-gray-700 dark:text-white/75">
+                  "I line up messages before long trips and never worry. Guardian Angel is my quiet safety net for the people I love."
                 </p>
                 <div className="flex text-yellow-400">
                   {[...Array(5)].map((_, i) => (
@@ -686,30 +706,30 @@ export function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="relative text-white py-16 px-4 overflow-hidden">
+      <footer className="relative text-gray-900 dark:text-white py-16 px-4 overflow-hidden bg-gray-100 dark:bg-transparent">
         {/* glow sweep */}
-        <div className="absolute inset-x-0 top-0 h-40 opacity-70 blur-2xl" style={{
+        <div className="absolute inset-x-0 top-0 h-40 opacity-70 blur-2xl dark:block hidden" style={{
           background: 'linear-gradient(90deg, rgba(124,58,237,0.3), rgba(99,102,241,0.25), rgba(124,58,237,0.3))'
         }} />
         <div className={`${siteSettings.heroLayout === 'full' ? 'max-w-7xl' : 'max-w-[1200px]'} mx-auto relative z-10`}>
           <div className="grid md:grid-cols-4 gap-8">
             <div>
-              <div className="text-2xl font-semibold mb-2">Keep up with the latest</div>
-              <p className="text-white/60 text-sm mb-6">Join our newsletter to stay up to date on features and releases.</p>
+              <div className="text-2xl font-semibold mb-2 text-gray-900 dark:text-white">Keep up with the latest</div>
+              <p className="text-gray-600 dark:text-white/60 text-sm mb-6">Join our newsletter to stay up to date on features and releases.</p>
               <NewsletterForm />
             </div>
             <div>
-              <div className="text-white/80 font-medium mb-3">Contact</div>
-              <ul className="text-sm text-white/60 space-y-2">
+              <div className="text-gray-800 dark:text-white/80 font-medium mb-3">Contact</div>
+              <ul className="text-sm text-gray-600 dark:text-white/60 space-y-2">
                 <li>hello@rembr.app</li>
                 <li>+1 (555) 123‑4567</li>
               </ul>
-              <div className="text-white/80 font-medium mt-5 mb-2">Address</div>
-              <p className="text-sm text-white/60">5600 Tennyson Parkway Plano Texas USA<br/>07:00 AM – 19:00 PM</p>
+              <div className="text-gray-800 dark:text-white/80 font-medium mt-5 mb-2">Address</div>
+              <p className="text-sm text-gray-600 dark:text-white/60">5600 Tennyson Parkway Plano Texas USA<br/>07:00 AM – 19:00 PM</p>
             </div>
             <div>
-              <div className="text-white/80 font-medium mb-3">Explore</div>
-              <ul className="text-sm text-white/60 space-y-2">
+              <div className="text-gray-800 dark:text-white/80 font-medium mb-3">Explore</div>
+              <ul className="text-sm text-gray-600 dark:text-white/60 space-y-2">
                 <li>Why Rembr?</li>
                 <li>Features</li>
                 <li>FAQs</li>
@@ -717,8 +737,8 @@ export function LandingPage() {
               </ul>
             </div>
             <div>
-              <div className="text-white/80 font-medium mb-3">Support</div>
-              <ul className="text-sm text-white/60 space-y-2">
+              <div className="text-gray-800 dark:text-white/80 font-medium mb-3">Support</div>
+              <ul className="text-sm text-gray-600 dark:text-white/60 space-y-2">
                 <li>Help Center</li>
                 <li>Privacy Policy</li>
                 <li>Disclaimer</li>
@@ -726,7 +746,7 @@ export function LandingPage() {
               </ul>
             </div>
           </div>
-          <div className="mt-10 text-center text-xs text-white/50">Copyright 2025 {siteSettings.siteName}. All rights reserved.</div>
+          <div className="mt-10 text-center text-xs text-gray-500 dark:text-white/50">Copyright 2025 {siteSettings.siteName}. All rights reserved.</div>
         </div>
       </footer>
     </div>

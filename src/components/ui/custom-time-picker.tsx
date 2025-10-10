@@ -69,7 +69,12 @@ function CustomTimePicker({
   const adjustMinutes = (delta: number) => {
     const newMinutes = (minutes + delta + 60) % 60
     setMinutes(newMinutes)
-    handleTimeChange(hours, newMinutes, period)
+    if (use24Hour) {
+      const h = hours24
+      onChange?.(`${h.toString().padStart(2, '0')}:${newMinutes.toString().padStart(2, '0')}`)
+    } else {
+      handleTimeChange(hours, newMinutes, period)
+    }
   }
 
   const togglePeriod = () => {

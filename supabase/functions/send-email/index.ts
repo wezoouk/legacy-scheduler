@@ -128,7 +128,14 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // SECURITY 3: Recipient validation (if userId provided)
-    if (userId) {
+    // Internal calls (from service processes) use the service role key in the Authorization header.
+    // For these trusted internal calls, bypass strict recipient authorization to prevent false negatives
+    // caused by user ownership mismatches while still keeping client calls restricted.
+    const authHeader = req.headers.get('authorization') || '';
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+    const isInternalTrustedCall = serviceRoleKey && authHeader.includes(serviceRoleKey);
+
+    if (userId && !isInternalTrustedCall) {
       const { data: recipient, error: recipientError } = await supabase
         .from('recipients')
         .select('id, email')
@@ -205,6 +212,16 @@ serve(async (req) => {
     }
 
     console.log('[v4.0-SECURE] Email sent successfully:', resendData.id);
+
+    // Increment persistent user stats (best effort)
+    try {
+      if (userId) {
+        const { error: incErr } = await supabase.rpc('increment_user_sent', { p_user_id: userId, p_amount: 1 });
+        if (incErr) console.error('[v4.0-SECURE] increment_user_sent error:', incErr);
+      }
+    } catch (e) {
+      console.error('[v4.0-SECURE] Failed to increment user stats:', e);
+    }
 
     // AUDIT LOG: Email sent successfully
     if (userId) {

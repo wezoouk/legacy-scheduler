@@ -16,7 +16,7 @@ import {
 import { format } from 'date-fns';
 
 export function AdminDashboard() {
-  const { getAdminStats } = useAdmin();
+  const { getAdminStats, siteSettings } = useAdmin();
   const { messages } = useMessages();
   const { recipients } = useRecipients();
   
@@ -40,9 +40,9 @@ export function AdminDashboard() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-        <p className="text-gray-600 mt-2">
-          Monitor and manage the Legacy Scheduler platform
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Admin Dashboard</h1>
+        <p className="text-gray-600 dark:text-gray-400 mt-2">
+          Monitor and manage the {siteSettings.siteName} platform
         </p>
       </div>
 
@@ -158,20 +158,20 @@ export function AdminDashboard() {
                     'bg-gray-400'
                   }`}></div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                       {message.title}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {format(message.createdAt, 'MMM d, HH:mm')}
                     </p>
                   </div>
-                  <span className="text-xs text-gray-400 capitalize">
+                  <span className="text-xs text-gray-400 dark:text-gray-500 capitalize">
                     {message.status.toLowerCase()}
                   </span>
                 </div>
               ))}
               {recentMessages.length === 0 && (
-                <p className="text-sm text-gray-500 text-center py-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
                   No recent messages
                 </p>
               )}
@@ -191,12 +191,12 @@ export function AdminDashboard() {
             {recentRecipients.map((recipient) => (
               <div key={recipient.id} className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
-                    <Users className="w-4 h-4 text-gray-600" />
+                  <div className="w-8 h-8 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
+                    <Users className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{recipient.name}</p>
-                    <p className="text-xs text-gray-500">{recipient.email}</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{recipient.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{recipient.email}</p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -205,14 +205,14 @@ export function AdminDashboard() {
                   ) : (
                     <Clock className="w-4 h-4 text-yellow-500" />
                   )}
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
                     {format(recipient.createdAt, 'MMM d')}
                   </span>
                 </div>
               </div>
             ))}
             {recentRecipients.length === 0 && (
-              <p className="text-sm text-gray-500 text-center py-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
                 No recipients yet
               </p>
             )}

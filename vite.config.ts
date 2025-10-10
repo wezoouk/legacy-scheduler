@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => {
   },
   define: {
     'process.env.RESEND_API_KEY': JSON.stringify(env.RESEND_API_KEY),
+    'import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY': JSON.stringify(env.VITE_SUPABASE_SERVICE_ROLE_KEY),
   },
 }
 })

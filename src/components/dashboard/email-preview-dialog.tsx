@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Eye, Mail, Smartphone, Monitor, Copy, ExternalLink } from "lucide-react";
 import { useState } from "react";
+import { useAdmin } from "@/lib/use-admin";
 
 interface EmailPreviewDialogProps {
   open: boolean;
@@ -24,6 +25,7 @@ export function EmailPreviewDialog({
   senderName = "[Your Name]",
   message
 }: EmailPreviewDialogProps) {
+  const { siteSettings } = useAdmin();
   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
   const [showRawHtml, setShowRawHtml] = useState(false);
 
@@ -126,7 +128,7 @@ export function EmailPreviewDialog({
       </div>
       <div style="background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb;">
         <p style="font-size: 12px; color: #6b7280; margin: 0;">
-          This message was sent through Legacy Scheduler
+          This message was sent through {siteSettings.siteName}
         </p>
       </div>
     </div>
@@ -223,7 +225,7 @@ export function EmailPreviewDialog({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                 <div>
                   <span className="font-medium text-gray-700">From:</span>
-                  <div className="text-gray-600">Legacy Scheduler &lt;noreply@legacyscheduler.com&gt;</div>
+                  <div className="text-gray-600">{siteSettings.siteName} &lt;noreply@legacyscheduler.com&gt;</div>
                 </div>
                 <div>
                   <span className="font-medium text-gray-700">To:</span>

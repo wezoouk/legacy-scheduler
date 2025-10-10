@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthUserId } from './useAuthUserId';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { onceWarn } from './onceWarn';
@@ -27,56 +28,68 @@ function generateId(): string {
   return `${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}`;
 }
 
+// Fetch function that React Query will cache
+const fetchRecipientsFromDB = async (userId: string): Promise<Recipient[]> => {
+  console.log('🔍 fetchRecipientsFromDB called with userId:', userId);
+  
+  if (!supabase || !userId) {
+    console.log('❌ Missing supabase or userId');
+    return [];
+  }
+  
+  const isSupabaseUser = userId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  if (!isSupabaseUser) {
+    console.log('❌ Invalid UUID format for userId:', userId);
+    return [];
+  }
+
+  console.log('📡 Fetching recipients from Supabase...');
+  const { data, error } = await supabase
+    .from('recipients')
+    .select('*')
+    .eq('userId', userId)
+    .order('createdAt', { ascending: false });
+
+  if (error) {
+    console.error('❌ Error fetching recipients:', error);
+    if (error.code === 'PGRST205') {
+      console.log('ℹ️ No recipients found (PGRST205)');
+      return [];
+    }
+    throw error;
+  }
+  
+  console.log('✅ Fetched recipients from DB:', data?.length || 0);
+
+  return (data || []).map((recipient: any) => ({
+    id: recipient.id,
+    userId: recipient.userId,
+    name: recipient.name,
+    email: recipient.email,
+    phone: recipient.phone,
+    timezone: recipient.timezone,
+    verified: !!recipient.verified,
+    createdAt: new Date(recipient.createdAt),
+    updatedAt: new Date(recipient.updatedAt),
+  }));
+};
+
 export function useRecipients() {
-  const [recipients, setRecipients] = useState<Recipient[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [showDemoBanner, setShowDemoBanner] = useState(false);
   const authUser = useAuthUserId();
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!authUser.id) {
-      setRecipients([]);
-      setIsLoading(false);
-      return;
-    }
-
-    fetchRecipients();
-  }, [authUser.id, authUser.isAuthenticated]);
-
-  const fetchRecipients = async () => {
-    if (!authUser.id) return;
-
-    try {
-      // Check if user is authenticated and has valid UUID
-      // Check if user has a valid UUID (Supabase user)
-      const isSupabaseUser = authUser.id && authUser.id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-      
-      if (!isSupabaseUser) {
-        setShowDemoBanner(true);
-        loadFromLocalStorage();
-        return;
-      }
-
-      if (isSupabaseConfigured && supabase) {
-        console.log('Fetching recipients from Supabase database');
-        await loadFromDatabase();
-      } else {
-        console.log('Supabase not configured, using localStorage fallback');
-        loadFromLocalStorage();
-      }
-    } catch (error) {
-      console.error('Error fetching recipients:', error);
-      console.log('Falling back to localStorage');
-      loadFromLocalStorage();
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Use React Query for automatic caching and deduplication
+  const { data: recipients = [], isLoading } = useQuery({
+    queryKey: ['recipients', authUser.id],
+    queryFn: () => fetchRecipientsFromDB(authUser.id || ''),
+    enabled: !!authUser.id && authUser.isAuthenticated,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
 
   const loadFromDatabase = async () => {
-    // Check if user has a valid UUID (Supabase user) and Supabase is configured
-    const isSupabaseUser = authUser.id && authUser.id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-    if (!authUser.id || !supabase || !isSupabaseUser) return;
+    // This function is kept for compatibility but now uses the cache
+    if (!authUser.id || !supabase) return;
 
     try {
       const { data, error } = await supabase
@@ -168,13 +181,10 @@ export function useRecipients() {
       throw error;
     }
 
-    // Update local state
-    const updatedRecipients = [recipient, ...recipients];
-    setRecipients(updatedRecipients);
     console.log('Recipient saved to database successfully');
     
-    // Refresh recipients to ensure consistency
-    await loadFromDatabase();
+    // Invalidate the cache to trigger a refresh
+    queryClient.invalidateQueries({ queryKey: ['recipients', authUser.id] });
   };
 
   const saveToLocalStorage = async (recipient: Recipient) => {
@@ -212,12 +222,10 @@ export function useRecipients() {
       throw error;
     }
 
-    // Update local state
-    const updatedRecipients = recipients.map(recipient => 
-      recipient.id === id ? updatedRecipient : recipient
-    );
-    setRecipients(updatedRecipients);
     console.log('Recipient updated in database successfully');
+    
+    // Invalidate the cache to trigger a refresh
+    queryClient.invalidateQueries({ queryKey: ['recipients', authUser.id] });
   };
 
   const updateInLocalStorage = async (id: string, updatedRecipient: Recipient) => {
@@ -328,10 +336,10 @@ export function useRecipients() {
       throw error;
     }
 
-    // Update local state
-    const updatedRecipients = recipients.filter(recipient => recipient.id !== id);
-    setRecipients(updatedRecipients);
     console.log('Recipient deleted from database successfully');
+    
+    // Invalidate the cache to trigger a refresh
+    queryClient.invalidateQueries({ queryKey: ['recipients', authUser.id] });
   };
 
   const deleteFromLocalStorage = async (id: string) => {
@@ -341,9 +349,23 @@ export function useRecipients() {
   };
 
   const refreshRecipients = async () => {
-    setIsLoading(true);
-    await fetchRecipients();
+    await queryClient.invalidateQueries({ queryKey: ['recipients', authUser.id] });
   };
+
+  // Minimal debug (toggle with localStorage flag)
+  const verboseDebug = localStorage.getItem('debug_verbose') === '1';
+  if (verboseDebug) {
+    if (!isLoading && recipients.length > 0) {
+      console.log('✅ Recipients loaded from cache:', recipients.length);
+    }
+    console.log('🔍 Recipients Debug:', {
+      authUserId: authUser.id,
+      isAuthenticated: authUser.isAuthenticated,
+      isLoading,
+      recipientsCount: recipients.length,
+      supabaseConfigured: !!supabase
+    });
+  }
 
   return {
     recipients,
