@@ -184,7 +184,9 @@ export function MessageList({ onCreateMessage }: MessageListProps = {}) {
             recipientName: recipient.name,
             subject: message.title,
             content: message.content,
-            attachments: attachments
+            messageType: 'EMAIL',
+            attachments: attachments,
+            backgroundColor: message.backgroundColor
           });
 
           if (result.success) {
@@ -422,7 +424,7 @@ export function MessageList({ onCreateMessage }: MessageListProps = {}) {
             message.status === 'SCHEDULED';
 
           return (
-            <Card key={message.id} className={`${isOverdue ? 'border-orange-200 bg-orange-50' : ''} relative`}>
+            <Card key={message.id} className={`${isOverdue ? 'border-red-200 bg-red-50' : ''} relative`}>
               {/* Storage indicator in bottom-right corner */}
               <div className="absolute bottom-2 right-2 z-10">
                 <div className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs ${
@@ -449,7 +451,7 @@ export function MessageList({ onCreateMessage }: MessageListProps = {}) {
                   <div className="flex items-center space-x-2">
                     <div className="flex space-x-1">
                       {Icons.map((Icon, index) => (
-                        <Icon key={index} className={`h-4 w-4 ${isOverdue ? 'text-orange-600' : 'text-primary'}`} />
+                        <Icon key={index} className={`h-4 w-4 ${isOverdue ? 'text-red-600' : 'text-primary'}`} />
                       ))}
                     </div>
                     <div>
@@ -475,7 +477,7 @@ export function MessageList({ onCreateMessage }: MessageListProps = {}) {
                           </Badge>
                         )}
                         {isOverdue && (
-                          <Badge className="bg-orange-100 text-orange-800 text-xs px-1.5 py-0.5">
+                          <Badge className="bg-red-100 text-red-800 text-xs px-1.5 py-0.5">
                             Overdue
                           </Badge>
                         )}

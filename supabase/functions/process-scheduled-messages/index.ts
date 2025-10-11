@@ -74,6 +74,7 @@ interface ScheduledMessage {
   videoRecording?: string;
   audioRecording?: string;
   attachments?: any;
+  backgroundColor?: string;
 }
 
 interface Recipient {
@@ -164,6 +165,137 @@ serve(async (req) => {
     const sanitizeHtml = (html: string) => html
       .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
       .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '')
+    
+    // Convert Quill classes to inline styles for email compatibility
+    const convertQuillClassesToInlineStyles = (html: string): string => {
+      console.log('[v4.0-SECURE] 🔧 Converting Quill classes to inline styles...');
+      console.log('[v4.0-SECURE] 📝 Original HTML:', html);
+      
+      // Convert Quill alignment classes to inline styles
+      html = html.replace(/class="([^"]*ql-align-center[^"]*)"/g, (match, classes) => {
+        const otherClasses = classes.replace(/ql-align-center/g, '').trim();
+        return otherClasses ? `class="${otherClasses}" style="text-align: center !important;"` : 'style="text-align: center !important;"';
+      });
+      html = html.replace(/class="ql-align-center"/g, 'style="text-align: center !important;"');
+      
+      html = html.replace(/class="([^"]*ql-align-right[^"]*)"/g, (match, classes) => {
+        const otherClasses = classes.replace(/ql-align-right/g, '').trim();
+        return otherClasses ? `class="${otherClasses}" style="text-align: right !important;"` : 'style="text-align: right !important;"';
+      });
+      html = html.replace(/class="ql-align-right"/g, 'style="text-align: right !important;"');
+      
+      html = html.replace(/class="([^"]*ql-align-left[^"]*)"/g, (match, classes) => {
+        const otherClasses = classes.replace(/ql-align-left/g, '').trim();
+        return otherClasses ? `class="${otherClasses}" style="text-align: left !important;"` : 'style="text-align: left !important;"';
+      });
+      html = html.replace(/class="ql-align-left"/g, 'style="text-align: left !important;"');
+      
+      html = html.replace(/class="([^"]*ql-align-justify[^"]*)"/g, (match, classes) => {
+        const otherClasses = classes.replace(/ql-align-justify/g, '').trim();
+        return otherClasses ? `class="${otherClasses}" style="text-align: justify !important; text-align-last: justify !important;"` : 'style="text-align: justify !important; text-align-last: justify !important;"';
+      });
+      html = html.replace(/class="ql-align-justify"/g, 'style="text-align: justify !important; text-align-last: justify !important;"');
+
+      // Convert Quill size classes to inline styles
+      html = html.replace(/class="([^"]*ql-size-small[^"]*)"/g, (match, classes) => {
+        const otherClasses = classes.replace(/ql-size-small/g, '').trim();
+        return otherClasses ? `class="${otherClasses}" style="font-size: 0.75em !important;"` : 'style="font-size: 0.75em !important;"';
+      });
+      
+      html = html.replace(/class="([^"]*ql-size-large[^"]*)"/g, (match, classes) => {
+        const otherClasses = classes.replace(/ql-size-large/g, '').trim();
+        return otherClasses ? `class="${otherClasses}" style="font-size: 1.5em !important;"` : 'style="font-size: 1.5em !important;"';
+      });
+      
+      html = html.replace(/class="([^"]*ql-size-huge[^"]*)"/g, (match, classes) => {
+        const otherClasses = classes.replace(/ql-size-huge/g, '').trim();
+        return otherClasses ? `class="${otherClasses}" style="font-size: 2.5em !important;"` : 'style="font-size: 2.5em !important;"';
+      });
+
+      // Convert Quill color classes to inline styles
+      const colorMap: { [key: string]: string } = {
+        'ql-color-white': 'color: white !important;',
+        'ql-color-red': 'color: #e60000 !important;',
+        'ql-color-orange': 'color: #f90 !important;',
+        'ql-color-yellow': 'color: #ff0 !important;',
+        'ql-color-green': 'color: #008a00 !important;',
+        'ql-color-blue': 'color: #06c !important;',
+        'ql-color-purple': 'color: #93f !important;',
+        'ql-color-black': 'color: #000 !important;'
+      };
+
+      Object.entries(colorMap).forEach(([className, style]) => {
+        html = html.replace(new RegExp(`class="([^"]*${className}[^"]*)"`, 'g'), (match, classes) => {
+          const otherClasses = classes.replace(new RegExp(className, 'g'), '').trim();
+          return otherClasses ? `class="${otherClasses}" style="${style}"` : `style="${style}"`;
+        });
+      });
+
+      // Convert Quill background color classes to inline styles
+      const bgColorMap: { [key: string]: string } = {
+        'ql-bg-white': 'background-color: white !important;',
+        'ql-bg-red': 'background-color: #e60000 !important;',
+        'ql-bg-orange': 'background-color: #f90 !important;',
+        'ql-bg-yellow': 'background-color: #ff0 !important;',
+        'ql-bg-green': 'background-color: #008a00 !important;',
+        'ql-bg-blue': 'background-color: #06c !important;',
+        'ql-bg-purple': 'background-color: #93f !important;',
+        'ql-bg-black': 'background-color: #000 !important;'
+      };
+
+      Object.entries(bgColorMap).forEach(([className, style]) => {
+        html = html.replace(new RegExp(`class="([^"]*${className}[^"]*)"`, 'g'), (match, classes) => {
+          const otherClasses = classes.replace(new RegExp(className, 'g'), '').trim();
+          return otherClasses ? `class="${otherClasses}" style="${style}"` : `style="${style}"`;
+        });
+      });
+
+      // Convert Quill formatting classes to inline styles
+      html = html.replace(/class="([^"]*ql-bold[^"]*)"/g, (match, classes) => {
+        const otherClasses = classes.replace(/ql-bold/g, '').trim();
+        return otherClasses ? `class="${otherClasses}" style="font-weight: bold !important;"` : 'style="font-weight: bold !important;"';
+      });
+      
+      html = html.replace(/class="([^"]*ql-italic[^"]*)"/g, (match, classes) => {
+        const otherClasses = classes.replace(/ql-italic/g, '').trim();
+        return otherClasses ? `class="${otherClasses}" style="font-style: italic !important;"` : 'style="font-style: italic !important;"';
+      });
+      
+      html = html.replace(/class="([^"]*ql-underline[^"]*)"/g, (match, classes) => {
+        const otherClasses = classes.replace(/ql-underline/g, '').trim();
+        return otherClasses ? `class="${otherClasses}" style="text-decoration: underline !important;"` : 'style="text-decoration: underline !important;"';
+      });
+      
+      html = html.replace(/class="([^"]*ql-strike[^"]*)"/g, (match, classes) => {
+        const otherClasses = classes.replace(/ql-strike/g, '').trim();
+        return otherClasses ? `class="${otherClasses}" style="text-decoration: line-through !important;"` : 'style="text-decoration: line-through !important;"';
+      });
+
+      // Ensure images have proper styling
+      html = html.replace(/<img([^>]*)>/g, (match, attrs) => {
+        if (!attrs.includes('style=')) {
+          return `<img${attrs} style="max-width: 100% !important; height: auto !important; max-height: 300px !important; object-fit: contain !important;">`;
+        }
+        return match;
+      });
+
+      // Convert header tags to inline styles
+      html = html.replace(/<h1([^>]*)>/g, '<h1$1 style="font-size: 2em !important; font-weight: bold !important; margin: 16px 0 !important;">');
+      html = html.replace(/<h2([^>]*)>/g, '<h2$1 style="font-size: 1.5em !important; font-weight: bold !important; margin: 14px 0 !important;">');
+      html = html.replace(/<h3([^>]*)>/g, '<h3$1 style="font-size: 1.17em !important; font-weight: bold !important; margin: 12px 0 !important;">');
+
+      // Ensure strong and em tags have proper styling
+      html = html.replace(/<strong([^>]*)>/g, '<strong$1 style="font-weight: bold !important;">');
+      html = html.replace(/<b([^>]*)>/g, '<b$1 style="font-weight: bold !important;">');
+      html = html.replace(/<em([^>]*)>/g, '<em$1 style="font-style: italic !important;">');
+      html = html.replace(/<i([^>]*)>/g, '<i$1 style="font-style: italic !important;">');
+      html = html.replace(/<u([^>]*)>/g, '<u$1 style="text-decoration: underline !important;">');
+      html = html.replace(/<s([^>]*)>/g, '<s$1 style="text-decoration: line-through !important;">');
+
+      console.log('[v4.0-SECURE] ✅ Quill classes converted to inline styles');
+      console.log('[v4.0-SECURE] 📝 Converted HTML:', html);
+      return html;
+    }
     // Use anon JWT if available; otherwise fall back to service-role JWT so the gateway accepts the request
     const authJwt = supabaseAnon || supabaseKey
     
@@ -309,18 +441,101 @@ serve(async (req) => {
                   }
                   const from = 'Rembr <noreply@sugarbox.uk>'
                   const sanitized = sanitizeHtml(message.content || '')
+                  
+                  // Prepare attachments
+                  const attachments: any[] = []
+                  
+                  // Add video attachment if present
+                  if (message.cipherBlobUrl || message.videoRecording) {
+                    const videoUrl = message.cipherBlobUrl || message.videoRecording
+                    console.log('Video message with URL:', videoUrl)
+                    if (videoUrl.startsWith('http')) {
+                      try {
+                        const response = await fetch(videoUrl)
+                        const arrayBuffer = await response.arrayBuffer()
+                        const bytes = new Uint8Array(arrayBuffer)
+                        let binary = ''
+                        for (let i = 0; i < bytes.length; i++) {
+                          binary += String.fromCharCode(bytes[i])
+                        }
+                        const base64 = btoa(binary)
+                        attachments.push({
+                          filename: 'video-message.mp4',
+                          content: base64,
+                          contentType: 'video/mp4'
+                        })
+                      } catch (error) {
+                        console.warn('Failed to fetch video attachment:', error)
+                        attachments.push({
+                          filename: 'video-message.mp4',
+                          content: `Video recording available at: ${videoUrl}`,
+                          contentType: 'text/plain'
+                        })
+                      }
+                    } else {
+                      // It's already base64 data URL
+                      attachments.push({
+                        filename: 'video-message.mp4',
+                        content: videoUrl.split(',')[1],
+                        contentType: 'video/mp4'
+                      })
+                    }
+                  }
+                  
+                  // Add audio attachment if present
+                  if (message.audioRecording) {
+                    if (message.audioRecording.startsWith('http')) {
+                      try {
+                        const response = await fetch(message.audioRecording)
+                        const arrayBuffer = await response.arrayBuffer()
+                        const bytes = new Uint8Array(arrayBuffer)
+                        let binary = ''
+                        for (let i = 0; i < bytes.length; i++) {
+                          binary += String.fromCharCode(bytes[i])
+                        }
+                        const base64 = btoa(binary)
+                        attachments.push({
+                          filename: 'audio-message.mp3',
+                          content: base64,
+                          contentType: 'audio/mpeg'
+                        })
+                      } catch (error) {
+                        console.warn('Failed to fetch audio attachment:', error)
+                        attachments.push({
+                          filename: 'audio-message.mp3',
+                          content: `Audio recording available at: ${message.audioRecording}`,
+                          contentType: 'text/plain'
+                        })
+                      }
+                    } else {
+                      // It's already base64 data URL
+                      attachments.push({
+                        filename: 'audio-message.mp3',
+                        content: message.audioRecording.split(',')[1],
+                        contentType: 'audio/mpeg'
+                      })
+                    }
+                  }
+                  
+                  const emailPayload: any = {
+                    from,
+                    to: [recipient.email],
+                    subject: message.title || 'Message',
+                    html: sanitized,
+                  }
+                  
+                  // Add attachments if any
+                  if (attachments.length > 0) {
+                    emailPayload.attachments = attachments
+                  }
+                  
                   const resendResponse = await fetch('https://api.resend.com/emails', {
                     method: 'POST',
                     headers: {
                       'Authorization': `Bearer ${resendApiKey}`,
                       'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                      from,
-                      to: [recipient.email],
-                      subject: message.title || 'Message',
-                      html: sanitized,
-                    }),
+                    body: JSON.stringify(emailPayload),
                   })
                   const resendData = await resendResponse.json().catch(() => ({}))
                   if (resendResponse.ok) {
@@ -415,7 +630,67 @@ serve(async (req) => {
               continue
             }
             const from = 'Rembr <noreply@sugarbox.uk>'
-            const sanitized = sanitizeHtml(message.content || '')
+            let sanitized = sanitizeHtml(message.content || '')
+            
+            console.log('[v4.0-SECURE] 📝 STEP 1 - Original message content:', message.content);
+            console.log('[v4.0-SECURE] 📝 STEP 1 - Content length:', message.content?.length || 0);
+            console.log('[v4.0-SECURE] 📝 STEP 1 - Contains HTML tags:', /<[^>]*>/g.test(message.content || ''));
+            
+            // Process content to replace placeholders (edge function version)
+            const siteName = 'Rembr'; // Default site name for edge function
+            sanitized = sanitized
+              .replace(/\[Name\]/g, recipient.name)
+              .replace(/\[Recipient Name\]/g, recipient.name)
+              .replace(/\[Your Name\]/g, siteName)
+              .replace(/\{\{siteName\}\}/g, siteName)
+              .replace(/\{\{recipientName\}\}/g, recipient.name);
+              
+            console.log('[v4.0-SECURE] 📝 STEP 2 - After variable replacement:', sanitized);
+            
+            console.log('[v4.0-SECURE] 🔧 Before Quill conversion:', sanitized);
+            sanitized = convertQuillClassesToInlineStyles(sanitized)
+            console.log('[v4.0-SECURE] 🔧 After Quill conversion:', sanitized);
+            
+        // Always wrap content with background color and container (default to white if not provided)
+        const bgColor = message.backgroundColor || '#ffffff';
+        console.log('[v4.0-SECURE] 🎨 STEP 3 - Background color (with default):', bgColor);
+        console.log('[v4.0-SECURE] 🎨 STEP 3 - Background color type:', typeof bgColor);
+        
+        // Ensure content has HTML tags - wrap plain text if needed
+        let htmlContent = sanitized;
+        const hasHtmlTags = /<[^>]*>/g.test(sanitized);
+        console.log('[v4.0-SECURE] 📝 STEP 4 - Has HTML tags:', hasHtmlTags);
+        
+        if (!hasHtmlTags) {
+          console.log('[v4.0-SECURE] 📝 STEP 4 - Plain text detected, wrapping in <p> tags');
+          htmlContent = `<p>${sanitized.replace(/\n/g, '</p><p>')}</p>`;
+          console.log('[v4.0-SECURE] 📝 STEP 4 - Wrapped HTML:', htmlContent);
+        } else {
+          console.log('[v4.0-SECURE] 📝 STEP 4 - Already has HTML tags, using as-is');
+        }
+        
+        const isHtmlContent = true; // Always treat as HTML now
+        console.log('[v4.0-SECURE] 📧 Processing as HTML content');
+        if (isHtmlContent) {
+            sanitized = `
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f9fafb !important; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important; mso-table-lspace: 0pt; mso-table-rspace: 0pt;">
+                <tr>
+                  <td style="padding: 20px !important;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: ${bgColor} !important; border-radius: 12px !important; overflow: hidden !important; mso-table-lspace: 0pt; mso-table-rspace: 0pt;">
+                      <tr>
+                        <td style="padding: 20px !important; mso-line-height-rule: exactly;">
+                          ${htmlContent}
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            `;
+        }
+        
+        console.log('[v4.0-SECURE] 📧 STEP 6 - Final processed content length:', sanitized.length);
+        console.log('[v4.0-SECURE] 📧 STEP 6 - Final content preview:', sanitized.substring(0, 200) + '...');
             const resendResponse = await fetch('https://api.resend.com/emails', {
               method: 'POST',
               headers: {
@@ -425,7 +700,12 @@ serve(async (req) => {
               body: JSON.stringify({
                 from,
                 to: [recipient.email],
-                subject: message.title || 'Message',
+                subject: (message.title || 'Message')
+                  .replace(/\[Name\]/g, recipient.name)
+                  .replace(/\[Recipient Name\]/g, recipient.name)
+                  .replace(/\[Your Name\]/g, siteName)
+                  .replace(/\{\{siteName\}\}/g, siteName)
+                  .replace(/\{\{recipientName\}\}/g, recipient.name),
                 html: sanitized,
               }),
             })

@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { useRecipients } from "@/lib/use-recipients";
+import { MediaService } from "@/lib/media-service";
 import { CalendarIcon, Video, Mic, Upload, X, Play, Pause, Trash2, Mail, FileText, Sparkles, Type, Shield, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { DmsActivationDialog } from "./dms-activation-dialog";
@@ -30,6 +31,15 @@ interface EditMessageDialogProps {
 
 export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditMessageDialogProps) {
   const { recipients } = useRecipients();
+  
+  // Debug recipients loading
+  useEffect(() => {
+    console.log('=== RECIPIENTS LOADING DEBUG (EDIT) ===');
+    console.log('recipients array:', recipients);
+    console.log('recipients length:', recipients.length);
+    console.log('recipients loaded:', recipients.length > 0);
+    console.log('=====================================');
+  }, [recipients]);
   const [title, setTitle] = useState(message?.title || '');
   const [content, setContent] = useState(message?.content || '');
   const [selectedTypes, setSelectedTypes] = useState<string[]>(message?.types || message?.type ? [message.type] : ['EMAIL']);
@@ -53,6 +63,7 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
   const [videoURL, setVideoURL] = useState<string>('');
   const [audioURL, setAudioURL] = useState<string>('');
+  const [templateBackgroundColor, setTemplateBackgroundColor] = useState('#ffffff');
 
   // Add missing state for DMS protection
   const [isDmsProtected, setIsDmsProtected] = useState(message?.scope === 'DMS' || false);
@@ -68,6 +79,7 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
       setExistingAudioUrl(message.audioRecording || '');
       setAttachments(message.attachments || []);
       setIsDmsProtected(message.scope === 'DMS' || false);
+      setTemplateBackgroundColor(message.backgroundColor || '#ffffff');
       
       const messageTypes = message.types || (message.type ? [message.type] : ['EMAIL']);
       setSelectedTypes(messageTypes);
@@ -223,16 +235,92 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
       scheduledFor = localDate.toISOString();
     }
 
-    // Convert Blobs to data URLs for storage, or preserve existing URLs
+    // Warn if no scheduled date is provided
+    if (!scheduledFor) {
+      const confirmed = confirm('⚠️ WARNING: No scheduled date provided.\n\nThis message will be saved as a DRAFT and will NOT be sent automatically.\n\nTo schedule the message for automatic sending, please select a date and time.\n\nDo you want to continue saving as a draft?');
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    // Handle video recording - upload to Supabase Storage if new video
     let videoData = existingVideoUrl || null;
     let audioData = existingAudioUrl || null;
 
     if (videoRecording instanceof Blob) {
-      videoData = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.readAsDataURL(videoRecording);
-      });
+      console.log('Processing new video recording in edit dialog');
+      try {
+        // Upload to Supabase Storage using message title as filename
+        const baseTitle = (title || 'video')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/(^-|-$)/g, '')
+          .slice(0, 50);
+        const filename = `${baseTitle}-${Date.now()}.webm`;
+        const videoResult = await MediaService.uploadVideo(videoRecording, filename);
+        videoData = videoResult.url;
+        console.log('Video uploaded to Supabase Storage:', videoResult.url);
+
+        // Add video container to content if VIDEO type is selected
+        if (selectedTypes.includes('VIDEO')) {
+          // Create video viewer URL with parameters
+          console.log('=== RECIPIENT DEBUG (EDIT DIALOG) ===');
+          console.log('selectedRecipients:', selectedRecipients);
+          console.log('recipients:', recipients);
+          console.log('First recipient ID:', selectedRecipients?.[0]);
+          const foundRecipient = recipients.find(r => r.id === selectedRecipients?.[0]);
+          console.log('Found recipient:', foundRecipient);
+          const recipientName = foundRecipient?.name || 'Recipient';
+          console.log('Final recipient name:', recipientName);
+          console.log('=====================================');
+          const videoViewerUrl = `${window.location.origin}/video-viewer?video=${encodeURIComponent(videoResult.url)}&sender=${encodeURIComponent(message.title || 'Rembr')}&title=${encodeURIComponent(title || 'Video Message')}&content=${encodeURIComponent(content || '')}&recipient=${encodeURIComponent(recipientName)}&sentAt=${encodeURIComponent(new Date().toISOString())}`;
+          
+          const videoContainerHtml = `
+            <div style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-radius: 12px; border: 1px solid #e9ecef;">
+              <div style="text-align: center; margin-bottom: 16px;">
+                <h3 style="color: #1f2937; font-size: 18px; font-weight: 600; margin: 0 0 8px 0;">📹 Video Message</h3>
+                <p style="color: #6b7280; font-size: 14px; margin: 0;">From: ${message.title || 'Rembr'}</p>
+              </div>
+              <div style="text-align: center;">
+                <a href="${videoViewerUrl}" style="display: inline-block; background: #3b82f6; color: white; text-decoration: none; padding: 16px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);" target="_blank" rel="noopener noreferrer">
+                  🎬 View Video Message
+                </a>
+              </div>
+              <div style="text-align: center; margin-top: 12px;">
+                <a href="${videoResult.url}" style="color: #6b7280; text-decoration: none; font-size: 14px;" target="_blank" rel="noopener noreferrer">
+                  🔗 Open Video Directly
+                </a>
+              </div>
+            </div>
+          `;
+          
+          // Check if content already has a video container, if not add it
+          if (!content.includes('📹 Video Message')) {
+            setContent(content + videoContainerHtml);
+          }
+        }
+
+        // Notify galleries so the new video appears in media area immediately
+        try {
+          window.dispatchEvent(new CustomEvent('mediaUploaded', {
+            detail: {
+              kind: 'video',
+              path: videoResult.path,
+              url: videoResult.url,
+              title: title || 'Video Recording',
+              createdAt: new Date().toISOString(),
+            }
+          }));
+        } catch {}
+      } catch (error) {
+        console.error('Failed to upload video to Supabase Storage:', error);
+        // Fallback to data URL if upload fails
+        videoData = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(videoRecording);
+        });
+      }
     }
 
     if (audioRecording instanceof Blob) {
@@ -262,6 +350,7 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
       videoRecording: videoData,
       audioRecording: audioData,
       attachments,
+      backgroundColor: templateBackgroundColor,
       status: scheduledFor ? 'SCHEDULED' : 'DRAFT',
       updatedAt: new Date().toISOString()
     };
@@ -380,12 +469,38 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
             </div>
             
             {useRichText && selectedTypes.includes('EMAIL') ? (
-              <RichTextEditor
-                value={content}
-                onChange={setContent}
-                placeholder="Compose your beautiful email message..."
-                className="min-h-[200px]"
-              />
+              <div className="space-y-2">
+                {/* Background Color Picker */}
+                <div className="flex items-center space-x-2">
+                  <Label htmlFor="background-color" className="text-sm font-medium">
+                    Background Color:
+                  </Label>
+                  <input
+                    id="background-color"
+                    type="color"
+                    value={templateBackgroundColor}
+                    onChange={(e) => setTemplateBackgroundColor(e.target.value)}
+                    className="w-12 h-8 rounded border border-gray-300 cursor-pointer"
+                    title="Choose background color for your email"
+                  />
+                  <span className="text-xs text-gray-500">
+                    {templateBackgroundColor}
+                  </span>
+                </div>
+                
+                {/* Rich Text Editor with Background */}
+                <div 
+                  className="rounded-lg overflow-hidden border"
+                  style={{ backgroundColor: templateBackgroundColor }}
+                >
+                  <RichTextEditor
+                    value={content}
+                    onChange={setContent}
+                    placeholder="Compose your beautiful email message..."
+                    className="min-h-[200px]"
+                  />
+                </div>
+              </div>
             ) : (
               <Textarea
                 id="content"
@@ -552,7 +667,7 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <Label className="flex items-center">
-                  <Shield className="h-4 w-4 mr-2 text-red-600" />
+                  <Shield className="h-4 w-4 mr-2 text-red-400" />
                   Guardian Angel Protection
                 </Label>
                 <p className="text-sm text-muted-foreground">
@@ -571,14 +686,14 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
               />
             </div>
             {isDmsProtected && (
-              <div className="p-3 bg-red-900/20 border border-red-700/30 rounded-lg space-y-2">
-                <div className="flex items-center justify-between text-red-300">
+              <div className="p-3 bg-red-900/30 border border-red-500/50 rounded-lg space-y-2">
+                <div className="flex items-center justify-between text-red-200">
                   <div className="flex items-center">
                     <Shield className="h-4 w-4 mr-2" />
                     <span className="font-medium text-sm">Guardian Angel Protected Message</span>
                   </div>
                 </div>
-                <p className="text-red-400 text-xs">
+                <p className="text-red-300 text-xs">
                   This message will be sent automatically if you fail to check in according to your Guardian Angel configuration.
                 </p>
                 <p className="text-yellow-400 text-xs italic">
@@ -601,7 +716,7 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
                       setScheduledDate(undefined);
                       setScheduledTime('');
                     }}
-                    className="text-xs h-6 px-2 text-muted-foreground hover:text-destructive"
+                    className="text-xs h-6 px-2 text-muted-foreground hover:text-red-500"
                   >
                     <X className="h-3 w-3 mr-1" />
                     Remove
@@ -641,7 +756,7 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="w-full text-gray-300 hover:text-red-400 hover:bg-gray-700"
+                      className="w-full text-gray-300 hover:text-red-300 hover:bg-gray-700"
                       onClick={() => {
                         setScheduledDate(undefined);
                         setScheduledTime('');
@@ -692,6 +807,7 @@ export function EditMessageDialog({ message, open, onOpenChange, onSave }: EditM
               : "Recipient"
           }
           senderName="Your Name"
+          backgroundColor={templateBackgroundColor}
         />
         
         <DmsActivationDialog

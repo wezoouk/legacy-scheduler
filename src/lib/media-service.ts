@@ -68,6 +68,13 @@ export class MediaService {
   }
 
   /**
+   * Upload image file for rich text editor
+   */
+  static async uploadImage(file: File): Promise<MediaUploadResult> {
+    return this.uploadFile(file, file.name, 'media');
+  }
+
+  /**
    * List files in a bucket/prefix
    */
   static async listFiles(prefix: string = 'uploads', bucket: string = 'media') {

@@ -271,7 +271,13 @@ export function VideoPreviewDialog({
                 <CardTitle className="text-lg">{message.title}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <p className="text-gray-600">{message.content}</p>
+                <div className="text-gray-600">
+                  <h4 className="font-medium text-gray-700 mb-2">IS EMAIL INCLUDED</h4>
+                  <div 
+                    className="prose prose-sm max-w-none p-3 bg-gray-50 rounded-lg border text-gray-900"
+                    dangerouslySetInnerHTML={{ __html: message.content }}
+                  />
+                </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                   <div className="space-y-2">

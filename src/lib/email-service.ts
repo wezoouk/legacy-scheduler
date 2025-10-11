@@ -24,9 +24,142 @@ export interface SendEmailRequest {
   messageType: 'EMAIL' | 'VIDEO' | 'VOICE' | 'FILE';
   attachments?: EmailAttachment[];
   senderName?: string;
+  backgroundColor?: string;
 }
 
 export class EmailService {
+  private static convertQuillClassesToInlineStyles(html: string): string {
+    console.log('🔧 Converting Quill classes to inline styles...');
+    console.log('📝 Original HTML:', html);
+    
+    // Convert Quill alignment classes to inline styles
+    html = html.replace(/class="([^"]*ql-align-center[^"]*)"/g, (match, classes) => {
+      const otherClasses = classes.replace(/ql-align-center/g, '').trim();
+      return otherClasses ? `class="${otherClasses}" style="text-align: center !important;"` : 'style="text-align: center !important;"';
+    });
+    
+    // Also handle cases where class might be the only attribute
+    html = html.replace(/class="ql-align-center"/g, 'style="text-align: center !important;"');
+    
+    html = html.replace(/class="([^"]*ql-align-right[^"]*)"/g, (match, classes) => {
+      const otherClasses = classes.replace(/ql-align-right/g, '').trim();
+      return otherClasses ? `class="${otherClasses}" style="text-align: right !important;"` : 'style="text-align: right !important;"';
+    });
+    html = html.replace(/class="ql-align-right"/g, 'style="text-align: right !important;"');
+    
+    html = html.replace(/class="([^"]*ql-align-left[^"]*)"/g, (match, classes) => {
+      const otherClasses = classes.replace(/ql-align-left/g, '').trim();
+      return otherClasses ? `class="${otherClasses}" style="text-align: left !important;"` : 'style="text-align: left !important;"';
+    });
+    html = html.replace(/class="ql-align-left"/g, 'style="text-align: left !important;"');
+    
+    html = html.replace(/class="([^"]*ql-align-justify[^"]*)"/g, (match, classes) => {
+      const otherClasses = classes.replace(/ql-align-justify/g, '').trim();
+      return otherClasses ? `class="${otherClasses}" style="text-align: justify !important; text-align-last: justify !important;"` : 'style="text-align: justify !important; text-align-last: justify !important;"';
+    });
+    html = html.replace(/class="ql-align-justify"/g, 'style="text-align: justify !important; text-align-last: justify !important;"');
+
+    // Convert Quill size classes to inline styles
+    html = html.replace(/class="([^"]*ql-size-small[^"]*)"/g, (match, classes) => {
+      const otherClasses = classes.replace(/ql-size-small/g, '').trim();
+      return otherClasses ? `class="${otherClasses}" style="font-size: 0.75em !important;"` : 'style="font-size: 0.75em !important;"';
+    });
+    
+    html = html.replace(/class="([^"]*ql-size-large[^"]*)"/g, (match, classes) => {
+      const otherClasses = classes.replace(/ql-size-large/g, '').trim();
+      return otherClasses ? `class="${otherClasses}" style="font-size: 1.5em !important;"` : 'style="font-size: 1.5em !important;"';
+    });
+    
+    html = html.replace(/class="([^"]*ql-size-huge[^"]*)"/g, (match, classes) => {
+      const otherClasses = classes.replace(/ql-size-huge/g, '').trim();
+      return otherClasses ? `class="${otherClasses}" style="font-size: 2.5em !important;"` : 'style="font-size: 2.5em !important;"';
+    });
+
+    // Convert Quill color classes to inline styles
+    const colorMap: { [key: string]: string } = {
+      'ql-color-white': 'color: white !important;',
+      'ql-color-red': 'color: #e60000 !important;',
+      'ql-color-orange': 'color: #f90 !important;',
+      'ql-color-yellow': 'color: #ff0 !important;',
+      'ql-color-green': 'color: #008a00 !important;',
+      'ql-color-blue': 'color: #06c !important;',
+      'ql-color-purple': 'color: #93f !important;',
+      'ql-color-black': 'color: #000 !important;'
+    };
+
+    Object.entries(colorMap).forEach(([className, style]) => {
+      html = html.replace(new RegExp(`class="([^"]*${className}[^"]*)"`, 'g'), (match, classes) => {
+        const otherClasses = classes.replace(new RegExp(className, 'g'), '').trim();
+        return otherClasses ? `class="${otherClasses}" style="${style}"` : `style="${style}"`;
+      });
+    });
+
+    // Convert Quill background color classes to inline styles
+    const bgColorMap: { [key: string]: string } = {
+      'ql-bg-white': 'background-color: white !important;',
+      'ql-bg-red': 'background-color: #e60000 !important;',
+      'ql-bg-orange': 'background-color: #f90 !important;',
+      'ql-bg-yellow': 'background-color: #ff0 !important;',
+      'ql-bg-green': 'background-color: #008a00 !important;',
+      'ql-bg-blue': 'background-color: #06c !important;',
+      'ql-bg-purple': 'background-color: #93f !important;',
+      'ql-bg-black': 'background-color: #000 !important;'
+    };
+
+    Object.entries(bgColorMap).forEach(([className, style]) => {
+      html = html.replace(new RegExp(`class="([^"]*${className}[^"]*)"`, 'g'), (match, classes) => {
+        const otherClasses = classes.replace(new RegExp(className, 'g'), '').trim();
+        return otherClasses ? `class="${otherClasses}" style="${style}"` : `style="${style}"`;
+      });
+    });
+
+    // Convert Quill formatting classes to inline styles
+    html = html.replace(/class="([^"]*ql-bold[^"]*)"/g, (match, classes) => {
+      const otherClasses = classes.replace(/ql-bold/g, '').trim();
+      return otherClasses ? `class="${otherClasses}" style="font-weight: bold !important;"` : 'style="font-weight: bold !important;"';
+    });
+    
+    html = html.replace(/class="([^"]*ql-italic[^"]*)"/g, (match, classes) => {
+      const otherClasses = classes.replace(/ql-italic/g, '').trim();
+      return otherClasses ? `class="${otherClasses}" style="font-style: italic !important;"` : 'style="font-style: italic !important;"';
+    });
+    
+    html = html.replace(/class="([^"]*ql-underline[^"]*)"/g, (match, classes) => {
+      const otherClasses = classes.replace(/ql-underline/g, '').trim();
+      return otherClasses ? `class="${otherClasses}" style="text-decoration: underline !important;"` : 'style="text-decoration: underline !important;"';
+    });
+    
+    html = html.replace(/class="([^"]*ql-strike[^"]*)"/g, (match, classes) => {
+      const otherClasses = classes.replace(/ql-strike/g, '').trim();
+      return otherClasses ? `class="${otherClasses}" style="text-decoration: line-through !important;"` : 'style="text-decoration: line-through !important;"';
+    });
+
+    // Ensure images have proper styling
+    html = html.replace(/<img([^>]*)>/g, (match, attrs) => {
+      if (!attrs.includes('style=')) {
+        return `<img${attrs} style="max-width: 100% !important; height: auto !important; max-height: 300px !important; object-fit: contain !important;">`;
+      }
+      return match;
+    });
+
+    // Convert header tags to inline styles
+    html = html.replace(/<h1([^>]*)>/g, '<h1$1 style="font-size: 2em !important; font-weight: bold !important; margin: 16px 0 !important;">');
+    html = html.replace(/<h2([^>]*)>/g, '<h2$1 style="font-size: 1.5em !important; font-weight: bold !important; margin: 14px 0 !important;">');
+    html = html.replace(/<h3([^>]*)>/g, '<h3$1 style="font-size: 1.17em !important; font-weight: bold !important; margin: 12px 0 !important;">');
+
+    // Ensure strong and em tags have proper styling
+    html = html.replace(/<strong([^>]*)>/g, '<strong$1 style="font-weight: bold !important;">');
+    html = html.replace(/<b([^>]*)>/g, '<b$1 style="font-weight: bold !important;">');
+    html = html.replace(/<em([^>]*)>/g, '<em$1 style="font-style: italic !important;">');
+    html = html.replace(/<i([^>]*)>/g, '<i$1 style="font-style: italic !important;">');
+    html = html.replace(/<u([^>]*)>/g, '<u$1 style="text-decoration: underline !important;">');
+    html = html.replace(/<s([^>]*)>/g, '<s$1 style="text-decoration: line-through !important;">');
+
+    console.log('✅ Quill classes converted to inline styles');
+    console.log('📝 Converted HTML:', html);
+    return html;
+  }
+
   static async updateDeliveryStatus(messageId: string, recipientId: string, status: {
     status: 'PENDING' | 'DELIVERED' | 'BOUNCED' | 'OPENED' | 'FAILED';
     deliveredAt?: Date;
@@ -159,16 +292,84 @@ export class EmailService {
     try {
       console.log('Sending email via edge function:', request);
       
+      // Get site name from localStorage (same as useAdmin hook)
+      let siteName = 'Rembr'; // default
+      try {
+        const stored = localStorage.getItem('legacyScheduler_siteSettings');
+        if (stored) {
+          const parsedSettings = JSON.parse(stored);
+          siteName = parsedSettings.siteName || 'Rembr';
+        }
+      } catch (error) {
+        console.warn('Could not load site settings, using default:', error);
+      }
+
       // Process content to replace placeholders
-      const processedContent = request.content
+      console.log('📝 STEP 1 - Original content from request:', request.content);
+      console.log('📝 STEP 1 - Content length:', request.content.length);
+      console.log('📝 STEP 1 - Contains HTML tags:', /<[^>]*>/g.test(request.content));
+      
+      let processedContent = request.content
         .replace(/\[Name\]/g, request.recipientName)
         .replace(/\[Recipient Name\]/g, request.recipientName)
-        .replace(/\[Your Name\]/g, 'Rembr');
+        .replace(/\[Your Name\]/g, siteName)
+        .replace(/\{\{siteName\}\}/g, siteName)
+        .replace(/\{\{recipientName\}\}/g, request.recipientName);
+        
+      console.log('📝 STEP 2 - After variable replacement:', processedContent);
+
+      // Convert Quill classes to inline styles for email compatibility
+      console.log('🔧 Before Quill conversion:', processedContent);
+      processedContent = this.convertQuillClassesToInlineStyles(processedContent);
+      console.log('🔧 After Quill conversion:', processedContent);
+
+      // Always wrap content with background color and container (default to white if not provided)
+      const bgColor = request.backgroundColor || '#ffffff';
+      console.log('🎨 STEP 3 - Background color (with default):', bgColor);
+      console.log('🎨 STEP 3 - Background color type:', typeof bgColor);
+      
+      // Ensure content has HTML tags - wrap plain text if needed
+      let htmlContent = processedContent;
+      const hasHtmlTags = /<[^>]*>/g.test(processedContent);
+      console.log('📝 STEP 4 - Has HTML tags:', hasHtmlTags);
+      
+      if (!hasHtmlTags) {
+        console.log('📝 STEP 4 - Plain text detected, wrapping in <p> tags');
+        htmlContent = `<p>${processedContent.replace(/\n/g, '</p><p>')}</p>`;
+        console.log('📝 STEP 4 - Wrapped HTML:', htmlContent);
+      } else {
+        console.log('📝 STEP 4 - Already has HTML tags, using as-is');
+      }
+      
+      const isHtmlContent = true; // Always treat as HTML now
+      console.log('📧 STEP 5 - Processing as HTML content');
+      if (isHtmlContent) {
+          processedContent = `
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f9fafb !important; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important; mso-table-lspace: 0pt; mso-table-rspace: 0pt;">
+              <tr>
+                <td style="padding: 20px !important;">
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: ${bgColor} !important; border-radius: 12px !important; overflow: hidden !important; mso-table-lspace: 0pt; mso-table-rspace: 0pt;">
+                    <tr>
+                      <td style="padding: 20px !important; mso-line-height-rule: exactly;">
+                        ${htmlContent}
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          `;
+      }
+      
+      console.log('📧 STEP 6 - Final processed content length:', processedContent.length);
+      console.log('📧 STEP 6 - Final content preview:', processedContent.substring(0, 200) + '...');
 
       const processedSubject = request.subject
         .replace(/\[Name\]/g, request.recipientName)
         .replace(/\[Recipient Name\]/g, request.recipientName)
-        .replace(/\[Your Name\]/g, 'Rembr');
+        .replace(/\[Your Name\]/g, siteName)
+        .replace(/\{\{siteName\}\}/g, siteName)
+        .replace(/\{\{recipientName\}\}/g, request.recipientName);
 
       // Create request with processed content
       const contentProcessedRequest = {

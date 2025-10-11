@@ -81,6 +81,8 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
   const [showEmailPreview, setShowEmailPreview] = useState(false);
   const [useRichText, setUseRichText] = useState(true);
   const [isUsingTemplate, setIsUsingTemplate] = useState(false);
+  const [templateBackgroundColor, setTemplateBackgroundColor] = useState<string>('#ffffff');
+  const [originalTemplateContent, setOriginalTemplateContent] = useState<string>('');
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
@@ -129,6 +131,15 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
   
   const { createMessage } = useMessages();
   const { recipients, refreshRecipients } = useRecipients();
+  
+  // Debug recipients loading
+  useEffect(() => {
+    console.log('=== RECIPIENTS LOADING DEBUG ===');
+    console.log('recipients array:', recipients);
+    console.log('recipients length:', recipients.length);
+    console.log('recipients loaded:', recipients.length > 0);
+    console.log('================================');
+  }, [recipients]);
   
   const {
     register,
@@ -310,9 +321,9 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
     setUploadedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleTemplateSelect = (template: EmailTemplate) => {
+  const handleTemplateSelect = (template: EmailTemplate, backgroundColor?: string) => {
     // Get selected recipient names from form data
-    const selectedRecipientIds = watch('recipientIds') || [];
+    const selectedRecipientIds = watch('recipients') || [];
     const selectedRecipientNames = selectedRecipientIds
       .map(id => recipients.find(r => r.id === id)?.name)
       .filter(Boolean);
@@ -333,8 +344,19 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
       .replace(/\[Name\]/g, recipientName || '')
       .replace(/\[Your Name\]/g, 'Your Name');
     
+    console.log('📧 Template content before processing:', template.content);
+    console.log('📧 Template content after processing:', processedContent);
+    
     setValue('title', processedSubject);
     setValue('content', processedContent);
+    
+    // Store original template content for email sending
+    setOriginalTemplateContent(template.content);
+    
+    // Store background color for email styling
+    if (backgroundColor) {
+      setTemplateBackgroundColor(backgroundColor);
+    }
     
     // Force rich text mode for templates since they contain HTML
     setUseRichText(true);
@@ -351,11 +373,21 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
       console.log('Selected audio URL:', selectedAudioUrl);
       console.log('Recorded blob:', !!recordedBlob);
       console.log('Form data:', data);
+      console.log('Form content length:', data.content?.length || 0);
+      console.log('Form content preview:', data.content?.substring(0, 100) || 'EMPTY');
       
       // Validate that at least one type is selected
       if (selectedTypes.length === 0) {
         alert('Please select at least one message type (Email, Video, Voice, or File).');
         return;
+      }
+
+      // Warn if no scheduled date is provided
+      if (!data.scheduledFor) {
+        const confirmed = confirm('⚠️ WARNING: No scheduled date provided.\n\nThis message will be saved as a DRAFT and will NOT be sent automatically.\n\nTo schedule the message for automatic sending, please select a date and time.\n\nDo you want to continue saving as a draft?');
+        if (!confirmed) {
+          return;
+        }
       }
       
       let content = data.content;
@@ -378,7 +410,36 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
             const filename = `${baseTitle}-${Date.now()}.webm`;
             const videoResult = await MediaService.uploadVideo(recordedBlob, filename);
             videoUrl = videoResult.url;
-          content += `\n\n📹 Video Message: <a href="${videoResult.url}" target="_blank" rel="noopener noreferrer">Open video</a>`;
+          // Create video viewer URL with parameters
+        console.log('=== RECIPIENT DEBUG ===');
+        console.log('data.recipients:', data.recipients);
+        console.log('recipients:', recipients);
+        console.log('First recipient ID:', data.recipients?.[0]);
+        const foundRecipient = recipients.find(r => r.id === data.recipients?.[0]);
+        console.log('Found recipient:', foundRecipient);
+        const recipientName = foundRecipient?.name || 'Recipient';
+        console.log('Final recipient name:', recipientName);
+        console.log('========================');
+          const videoViewerUrl = `${window.location.origin}/video-viewer?video=${encodeURIComponent(videoResult.url)}&sender=${encodeURIComponent(user?.user_metadata?.full_name || 'Rembr')}&title=${encodeURIComponent(data.title || 'Video Message')}&content=${encodeURIComponent(data.content || '')}&recipient=${encodeURIComponent(recipientName)}&sentAt=${encodeURIComponent(new Date().toISOString())}`;
+          
+          content += `
+            <div style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-radius: 12px; border: 1px solid #e9ecef;">
+              <div style="text-align: center; margin-bottom: 16px;">
+                <h3 style="color: #1f2937; font-size: 18px; font-weight: 600; margin: 0 0 8px 0;">📹 Video Message</h3>
+                <p style="color: #6b7280; font-size: 14px; margin: 0;">From: ${user?.user_metadata?.full_name || 'Rembr'}</p>
+              </div>
+              <div style="text-align: center;">
+                <a href="${videoViewerUrl}" style="display: inline-block; background: #3b82f6; color: white; text-decoration: none; padding: 16px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);" target="_blank" rel="noopener noreferrer">
+                  🎬 View Video Message
+                </a>
+              </div>
+              <div style="text-align: center; margin-top: 12px;">
+                <a href="${videoResult.url}" style="color: #6b7280; text-decoration: none; font-size: 14px;" target="_blank" rel="noopener noreferrer">
+                  🔗 Open Video Directly
+                </a>
+              </div>
+            </div>
+          `;
             console.log('Video uploaded to Supabase Storage:', videoResult.url);
 
             // Notify galleries so the new video appears first immediately
@@ -401,7 +462,36 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
           console.log('Using selected existing video:', selectedVideoUrl);
           // Use selected existing video
           videoUrl = selectedVideoUrl;
-          content += `\n\n📹 Video Message: <a href="${selectedVideoUrl}" target="_blank" rel="noopener noreferrer">Open video</a>`;
+          // Create video viewer URL with parameters
+          console.log('=== RECIPIENT DEBUG (SELECTED VIDEO) ===');
+          console.log('data.recipients:', data.recipients);
+          console.log('recipients:', recipients);
+          console.log('First recipient ID:', data.recipients?.[0]);
+          const foundRecipient = recipients.find(r => r.id === data.recipients?.[0]);
+          console.log('Found recipient:', foundRecipient);
+          const recipientName = foundRecipient?.name || 'Recipient';
+          console.log('Final recipient name:', recipientName);
+          console.log('========================================');
+          const videoViewerUrl = `${window.location.origin}/video-viewer?video=${encodeURIComponent(selectedVideoUrl)}&sender=${encodeURIComponent(user?.user_metadata?.full_name || 'Rembr')}&title=${encodeURIComponent(data.title || 'Video Message')}&content=${encodeURIComponent(data.content || '')}&recipient=${encodeURIComponent(recipientName)}&sentAt=${encodeURIComponent(new Date().toISOString())}`;
+          
+          content += `
+            <div style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-radius: 12px; border: 1px solid #e9ecef;">
+              <div style="text-align: center; margin-bottom: 16px;">
+                <h3 style="color: #1f2937; font-size: 18px; font-weight: 600; margin: 0 0 8px 0;">📹 Video Message</h3>
+                <p style="color: #6b7280; font-size: 14px; margin: 0;">From: ${user?.user_metadata?.full_name || 'Rembr'}</p>
+              </div>
+              <div style="text-align: center;">
+                <a href="${videoViewerUrl}" style="display: inline-block; background: #3b82f6; color: white; text-decoration: none; padding: 16px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);" target="_blank" rel="noopener noreferrer">
+                  🎬 View Video Message
+                </a>
+              </div>
+              <div style="text-align: center; margin-top: 12px;">
+                <a href="${selectedVideoUrl}" style="color: #6b7280; text-decoration: none; font-size: 14px;" target="_blank" rel="noopener noreferrer">
+                  🔗 Open Video Directly
+                </a>
+              </div>
+            </div>
+          `;
         } else {
           console.warn('VIDEO type selected but no video source found - recordedBlob:', !!recordedBlob, 'selectedVideoUrl:', selectedVideoUrl);
         }
@@ -484,9 +574,44 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
         }
       }
       
+      // Use the edited content from the rich text editor (includes user changes)
+      let finalContent = content;
+      
+      console.log('📧 ===== CONTENT FLOW DEBUG =====');
+      console.log('📧 Raw content from editor:', content);
+      console.log('📧 Is using template:', isUsingTemplate);
+      console.log('📧 Template background color:', templateBackgroundColor);
+      
+      // If using template, we still need to process recipient names in the edited content
+      if (isUsingTemplate) {
+        // Get selected recipient names for template processing
+        const selectedRecipientIds = data.recipients || [];
+        const selectedRecipientNames = selectedRecipientIds
+          .map(id => recipients.find(r => r.id === id)?.name)
+          .filter(Boolean);
+        
+        const recipientName = selectedRecipientNames.length === 1 
+          ? selectedRecipientNames[0]
+          : selectedRecipientNames.length > 1 
+            ? selectedRecipientNames[0]
+            : '[Recipient Name]';
+        
+        // Process the edited content with recipient names (preserves user formatting)
+        finalContent = content
+          .replace(/\[Name\]/g, recipientName || '')
+          .replace(/\[Your Name\]/g, 'Your Name');
+      }
+      
+      console.log('📧 Using edited content from rich text editor (preserves user formatting)');
+      console.log('📧 Final content for message:', finalContent);
+      console.log('📧 Final content length:', finalContent.length);
+      console.log('📧 Has HTML tags:', /<[^>]*>/g.test(finalContent));
+      console.log('📧 Has Quill classes:', /ql-align/.test(finalContent));
+      console.log('📧 ===== END CONTENT FLOW DEBUG =====');
+      
       const messageData = {
         title: data.title,
-        content,
+        content: finalContent,
         types: selectedTypes, // Use selectedTypes state, not form data
         recipientIds: data.recipients,
         scheduledFor: data.scheduledFor ? new Date(data.scheduledFor) : undefined,
@@ -500,6 +625,8 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
         audioRecording: audioUrl || undefined,
         // NO localStorage fallback - only Supabase Storage URLs
         attachments: uploadedAttachmentMeta,
+        // Include background color for email styling
+        backgroundColor: templateBackgroundColor,
       };
       
       console.log('Creating message with data:', {
@@ -520,12 +647,24 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
       resetFormState();
     } catch (err) {
       console.error('Failed to create message:', err);
+      // Show user-friendly error message
+      alert(`Failed to create message: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      // Re-throw error so calling function can handle it
+      throw err;
     }
   };
 
   const onSubmitAndClose = async (data: MessageForm) => {
-    await onSubmit(data);
-    onOpenChange(false);
+    try {
+      await onSubmit(data);
+      // Only close dialog if submission was successful
+      onOpenChange(false);
+    } catch (err) {
+      console.error('Failed to create message and close:', err);
+      // Show user-friendly error message
+      alert(`Failed to create message: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      // Don't close dialog on error - let user see the error and try again
+    }
   };
 
   const resetFormState = () => {
@@ -537,6 +676,8 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
     setIsDmsProtected(false);
     setUseRichText(false);
     setIsUsingTemplate(false);
+    setOriginalTemplateContent('');
+    setTemplateBackgroundColor('#ffffff'); // Reset to white
     // Clear selected media URLs
     setSelectedVideoUrl(null);
     setSelectedVideoTitle('');
@@ -768,7 +909,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <Label className="flex items-center">
-                  <Shield className="h-4 w-4 mr-2 text-red-600" />
+                  <Shield className="h-4 w-4 mr-2 text-red-400" />
                   Guardian Angel Protection
                 </Label>
                 <p className="text-sm text-muted-foreground">
@@ -787,14 +928,14 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
               />
             </div>
             {isDmsProtected && (
-              <div className="p-3 bg-red-900/20 border border-red-700/30 rounded-lg space-y-2">
-                <div className="flex items-center justify-between text-red-300">
+              <div className="p-3 bg-red-900/30 border border-red-500/50 rounded-lg space-y-2">
+                <div className="flex items-center justify-between text-red-200">
                   <div className="flex items-center">
                     <Shield className="h-4 w-4 mr-2" />
                     <span className="font-medium text-sm">Guardian Angel Protected Message</span>
                   </div>
                 </div>
-                <p className="text-red-400 text-xs">
+                <p className="text-red-300 text-xs">
                   This message will be sent automatically if you fail to check in according to your Guardian Angel configuration.
                 </p>
                 <Button
@@ -871,19 +1012,48 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
               </div>
             </div>
             
+            {/* Background Color Picker - Only show for rich text */}
+            {useRichText && (
+              <div className="flex items-center gap-2 mb-2">
+                <Label htmlFor="background-color" className="text-sm font-medium text-gray-700">
+                  Background Color:
+                </Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    id="background-color"
+                    value={templateBackgroundColor}
+                    onChange={(e) => setTemplateBackgroundColor(e.target.value)}
+                    className="w-8 h-8 rounded border border-gray-300 cursor-pointer"
+                  />
+                  <span className="text-xs text-gray-600 font-mono">
+                    {templateBackgroundColor}
+                  </span>
+                </div>
+              </div>
+            )}
+            
             {useRichText ? (
-              <RichTextEditor
-                value={watch('content') || ''}
-                onChange={(value) => setValue('content', value)}
-                placeholder={
-                  selectedTypes.includes('EMAIL') ? 'Compose your message...' :
-                  selectedTypes.includes('VIDEO') && selectedTypes.includes('VOICE') ? 'Add rich notes for video and voice...' :
-                  selectedTypes.includes('VIDEO') ? 'Add rich description or script for the video...' :
-                  selectedTypes.includes('VOICE') ? 'Add rich notes for the voice message...' :
-                  'Describe the files with rich text...'
-                }
-                className="min-h-[200px]"
-              />
+              <div 
+                className="min-h-[200px] rounded-lg border overflow-hidden"
+                style={{ backgroundColor: templateBackgroundColor }}
+              >
+                <RichTextEditor
+                  value={watch('content') || ''}
+                  onChange={(value) => {
+                    console.log('RichTextEditor onChange:', value);
+                    setValue('content', value);
+                  }}
+                  placeholder={
+                    selectedTypes.includes('EMAIL') ? 'Compose your message...' :
+                    selectedTypes.includes('VIDEO') && selectedTypes.includes('VOICE') ? 'Add rich notes for video and voice...' :
+                    selectedTypes.includes('VIDEO') ? 'Add rich description or script for the video...' :
+                    selectedTypes.includes('VOICE') ? 'Add rich notes for the voice message...' :
+                    'Describe the files with rich text...'
+                  }
+                  className="min-h-[200px]"
+                />
+              </div>
             ) : (
               <Textarea
                 id="content"
@@ -972,7 +1142,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
                     variant="ghost"
                     size="sm"
                     onClick={() => setValue("scheduledFor", undefined)}
-                    className="text-xs h-6 px-2 text-muted-foreground hover:text-destructive"
+                    className="text-xs h-6 px-2 text-muted-foreground hover:text-red-500"
                   >
                     <X className="h-3 w-3 mr-1" />
                     Remove
@@ -1025,7 +1195,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="w-full text-gray-300 hover:text-red-400 hover:bg-gray-700"
+                        className="w-full text-gray-300 hover:text-red-300 hover:bg-gray-700"
                         onClick={() => setValue("scheduledFor", undefined)}
                       >
                         <X className="h-3 w-3 mr-1" />
@@ -1089,11 +1259,12 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
           subject={watch('title') || 'Your Message Subject'}
           content={watch('content') || ''}
           recipientName={
-            watch('recipientIds') && watch('recipientIds').length > 0
-              ? recipients.find(r => r.id === watch('recipientIds')[0])?.name || "Recipient"
+            watch('recipients') && watch('recipients').length > 0
+              ? recipients.find(r => r.id === watch('recipients')[0])?.name || "Recipient"
               : "Recipient"
           }
           senderName="Your Name"
+          backgroundColor={templateBackgroundColor}
         />
         
         <DmsActivationDialog
@@ -1156,7 +1327,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
               toast({
                 title: (
                   <div className="flex items-center gap-2">
-                    <AlertCircle className="h-5 w-5 text-red-600" />
+                    <AlertCircle className="h-5 w-5 text-red-400" />
                     <span>Activation Failed</span>
                   </div>
                 ),
@@ -1295,7 +1466,7 @@ export function CreateMessageDialog({ open, onOpenChange }: Props) {
               />
               {!isRecording && !recordedBlob && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <Button onClick={startRecording} className="pointer-events-auto bg-red-600 hover:bg-red-700 px-6 py-6 text-base">Start Recording</Button>
+                  <Button onClick={startRecording} className="pointer-events-auto bg-red-500 hover:bg-red-600 px-6 py-6 text-base">Start Recording</Button>
                 </div>
               )}
               {recordedBlob && (

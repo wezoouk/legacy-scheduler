@@ -22,6 +22,7 @@ import { StorageNotification } from '@/components/ui/storage-notification';
 import { MediaViewerPage } from '@/pages/media-viewer';
 import { MediaLibraryPage } from '@/pages/dashboard/media-library';
 import { MigrateMediaPage } from '@/pages/dashboard/migrate-media';
+import VideoViewerPage from '@/pages/video-viewer';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -164,6 +165,7 @@ function AppRoutes() {
           }
         />
         <Route path="/view" element={<MediaViewerPage />} />
+        <Route path="/video-viewer" element={<VideoViewerPage />} />
         <Route
           path="/dashboard/profile"
           element={

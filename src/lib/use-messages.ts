@@ -19,6 +19,7 @@ export interface Message {
   scope?: 'NORMAL' | 'DMS';
   cipherBlobUrl?: string;
   thumbnailUrl?: string;
+  backgroundColor?: string;
   // Guardian Angel status
   dmsOverdue?: boolean;
   dmsNextCheckin?: Date;
@@ -304,6 +305,7 @@ export function useMessages() {
         videoRecording: message.videoRecording || null,
         audioRecording: message.audioRecording || null,
         attachments: message.attachments ? JSON.stringify(message.attachments) : null,
+        backgroundColor: message.backgroundColor || '#ffffff',
         createdAt: message.createdAt.toISOString(),
         updatedAt: message.updatedAt.toISOString(),
       });
@@ -341,6 +343,7 @@ export function useMessages() {
         videoRecording: updatedMessage.videoRecording || null,
         audioRecording: updatedMessage.audioRecording || null,
         attachments: updatedMessage.attachments ? JSON.stringify(updatedMessage.attachments) : null,
+        backgroundColor: updatedMessage.backgroundColor || '#ffffff',
         updatedAt: updatedMessage.updatedAt ? 
           (typeof updatedMessage.updatedAt === 'string' ? updatedMessage.updatedAt : updatedMessage.updatedAt.toISOString())
           : new Date().toISOString(),

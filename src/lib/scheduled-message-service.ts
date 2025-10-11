@@ -16,6 +16,7 @@ export interface ScheduledMessage {
   videoRecording?: string;
   audioRecording?: string;
   attachments?: Array<{ name: string; size: number; type: string }>;
+  backgroundColor?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -263,10 +264,36 @@ export class ScheduledMessageService {
               // Prepare attachments for email
               const attachments = [];
               
-              // Video URLs are included in the content as links; no attachment needed
+              // Add video attachment if present
               if (message.cipherBlobUrl || message.videoRecording) {
                 const videoUrl = message.cipherBlobUrl || message.videoRecording;
                 console.log('Video message with URL:', videoUrl);
+                if (videoUrl.startsWith('http')) {
+                  try {
+                    const response = await fetch(videoUrl);
+                    const blob = await response.blob();
+                    const base64 = await this.blobToBase64(blob);
+                    attachments.push({
+                      filename: 'video-message.mp4',
+                      content: base64,
+                      contentType: 'video/mp4'
+                    });
+                  } catch (error) {
+                    console.warn('Failed to fetch video attachment:', error);
+                    attachments.push({
+                      filename: 'video-message.mp4',
+                      content: `Video recording available at: ${videoUrl}`,
+                      contentType: 'text/plain'
+                    });
+                  }
+                } else {
+                  // It's already base64 data URL
+                  attachments.push({
+                    filename: 'video-message.mp4',
+                    content: videoUrl.split(',')[1],
+                    contentType: 'video/mp4'
+                  });
+                }
               }
               
               // Add audio attachment if present
@@ -328,7 +355,8 @@ export class ScheduledMessageService {
                 subject: message.title,
                 content: message.content,
                 messageType: (message.types?.[0] as 'EMAIL' | 'VIDEO' | 'VOICE' | 'FILE') || 'EMAIL',
-                attachments: attachments
+                attachments: attachments,
+                backgroundColor: message.backgroundColor
               });
 
               if (result && result.success) {
